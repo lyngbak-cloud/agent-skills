@@ -51,13 +51,13 @@ directory.
 
 **Create first, then deploy.** There is no way to push, upload or connect before the
 site exists: the git remote, the SFTP host and the deploy endpoint are all derived from
-the site, and the daemon has to provision its storage and routing before any of them
+the site, and the platform has to provision its storage and routing before any of them
 answer.
 
 **Do not wait for `state` to leave `pending` — it will not.** A static site is `pending`
 until content has been deployed to it, so waiting for anything else before the first
 deploy hangs forever. What you actually wait for is the field your source needs, which
-the daemon fills in during provisioning (a few seconds, normally):
+the platform fills in during provisioning (a few seconds, normally):
 
 | Source | Poll `GET /api/v1/static/{uuid}` until |
 |---|---|
@@ -66,7 +66,7 @@ the daemon fills in during provisioning (a few seconds, normally):
 | `github` | nothing — deploy as soon as the site is created |
 
 Do not construct the git remote or the SFTP host yourself from the site name. Read them
-back from `deployment_config`; they are empty until the daemon fills them in.
+back from `deployment_config`; they are empty until the platform fills them in.
 
 After the first successful deploy the site leaves `pending`, and from then on `state`
 tells you what you expect it to.

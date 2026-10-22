@@ -162,6 +162,8 @@ services:
     x-miget:
       ram: "512"
       private: true    # internal only, not publicly exposed
+      vpc: default       # join this workspace VPC (its "default" subnet), or { name: default, subnet: backend }
+      project_variables: true  # inherit the project's environment variables (paid plans)
   db:                  # a database/cache -> provision as a managed add-on, not a raw container
     x-miget:
       managed: postgres  # supported: postgres, valkey
@@ -185,6 +187,15 @@ Rules when generating it:
   as managed add-ons and injects their connection variables — don't run them as raw containers.
 - Give every named volume an `x-miget: { size: "<MB or unit>", type: RWO }` (`RWX` only when the
   volume is shared across replicas).
+- `x-miget.vpc` names a VPC of the workspace in the resource's region, by name, or as
+  `{ name, subnet }` for a subnet other than `default`. The service is created on it, and a
+  redeploy attaches it when the key is added and detaches it when the key is removed; moving an
+  attached service to another subnet is not applied (remove the key, deploy, then add the new one). A VPC name that does not exist
+  fails that service's creation.
+- `x-miget.project_variables: true` makes the service inherit the project's environment
+  variables (the same switch as `PUT /api/v1/apps/{uuid}/vars/project_variables_enabled`);
+  removing it or setting `false` turns inheritance off on the next deploy. Keep values that
+  differ per service out of the project, since an app variable with the same key wins.
 
 Re-run `POST /api/v1/stacks/analyze` after adding the file to confirm the detected services and
 sizing. Full field reference: the "Docker Compose Stacks" page in the Miget docs.

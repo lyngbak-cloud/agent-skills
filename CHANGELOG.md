@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.6 — 2026-10-22
+
+Compose stacks can join a VPC and inherit project variables, the skill names the refusals an agent should relay rather than retry, and support moves to its own address.
+
+- **`x-miget.vpc` on a compose service joins it to a VPC** of the workspace in the resource's region, by name or as `{ name, subnet }`. A redeploy attaches it when the key is added and detaches it when the key is removed; moving an attached service to another subnet is not applied. A VPC name that does not exist fails that service's creation
+- **`x-miget.project_variables: true` makes a compose service inherit the project's environment variables** (paid plans), the same switch as `PUT /api/v1/apps/{uuid}/vars/project_variables_enabled`. Removing it or setting `false` turns inheritance off on the next deploy
+- **A free resource is refused with `422` for an account with a workspace suspended for abuse,** pointing at support. Relay it rather than retry
+- **Restore an ended subscription before changing a plan.** `POST /api/v1/resources` and `PUT /api/v1/resources/{uuid}` refuse anything but the free plan with `422` while the subscription has ended. No endpoint restores it: send the user to **Billing** → **Restore Subscription**
+- **Support is `support@miget.com`**
+
 ## 1.0.5 — 2026-09-28
 
 Setting an environment variable is now `PUT`, which creates the key or overwrites it. The skill used to send every value with `POST`, which refuses a key that already exists, so an agent syncing a `.env` file a second time failed on every variable it had set before.

@@ -1,7 +1,7 @@
 ---
 name: miget-api
 description: Deploy and manage apps, databases, buckets, private networks and services on Miget PaaS. Covers authentication, resource provisioning, deployments, add-ons, domains, environment variables, VPCs and VPN, and every API endpoint. Use this skill whenever the user mentions Miget, deploying an app to Miget, a miget/resource, or asks to ship, host, scale or debug an application on the Miget platform — including when they only describe the goal ("get this Rails app online", "give my database a private address") without naming Miget.
-version: 1.0.5
+version: 1.0.6
 ---
 
 # Miget API - Guide for AI Agents
@@ -219,11 +219,11 @@ Preview environments (review apps) work only for `github` apps — so a repo tha
 
 Prefer an **addon** over a standalone service unless more than one app genuinely needs the same database.
 
-**The free plan needs a card on file.** Nothing is charged; the card is how Miget tells a person from a throwaway account, and each card is good for one free resource. A request for a free resource from an account with no saved card is rejected with `422` and a message saying so; a card already used for somebody else's free resource is rejected the same way, pointing at support. Cards added through Apple Pay or Google Pay count. This applies to creating a resource and to moving an existing one down to the free plan.
+**The free plan needs a card on file.** Nothing is charged. A request for a free resource from an account with no saved card is rejected with `422` and a message saying so; a card that cannot be used for it is rejected the same way, pointing at support. Cards added through Apple Pay or Google Pay count. This applies to creating a resource and to moving an existing one down to the free plan. An account with a workspace suspended for abuse gets no free resource at all; it is rejected with `422` pointing at support — relay that, do not retry.
 
-**A new account gets 30 days free on Hobby 5 — and only there.** An account that has never paid for a resource, and has not used a trial before, gets a 30-day free trial when it buys plan `miget_hobby_5` **on its own, with no `components`**. The checkout link comes back as usual and charges nothing today; billing starts at the end of the trial at the plan's normal price, and cancelling before then costs nothing. Any other plan is an ordinary purchase, cheaper ones included, and so is Hobby 5 with a paid component on the same request — there is no partial version of this. The trial is spent once per account and once per workspace.
+**A new account gets 30 days free on Hobby 5 — and only there.** A new account gets a 30-day free trial when it buys plan `miget_hobby_5` **on its own, with no `components`**. The checkout link comes back as usual and charges nothing today; billing starts at the end of the trial at the plan's normal price, and cancelling before then costs nothing. Miget decides whether an account qualifies; one that does not gets an ordinary purchase at the plan's normal price. Any other plan is an ordinary purchase, cheaper ones included, and so is Hobby 5 with a paid component on the same request — there is no partial version of this.
 
-It needs **a saved payment card**, exactly like the free plan and with the same `422`: no card on file, or a card already used for someone else's trial, and the request is rejected before any resource exists. Reading the plan the user asked for and quietly buying it without the trial would cost them money they did not expect, so relay the rejection and point at billing settings instead.
+It needs **a saved payment card**, exactly like the free plan and with the same `422`: no card on file, or a card that cannot be used for the trial, and the request is rejected before any resource exists. Reading the plan the user asked for and quietly buying it without the trial would cost them money they did not expect, so relay the rejection and point at billing settings instead.
 
 Once a trial is running, adding a resource or moving up to a dearer plan **ends it immediately and bills the new total that day** — a downgrade or a sideways move does not. Say this before an agent "upgrades while it is free anyway".
 
@@ -605,4 +605,4 @@ confirm once.
 - **OpenAPI Spec:** `https://app.miget.com/docs/openapi.json` (use as fallback when this guide doesn't cover a specific endpoint or parameter)
 - **Documentation:** `https://docs.miget.com`
 - **Website:** `https://migetapp.com`
-- **Support:** `hello@miget.com` or `https://migetapp.com/join-discord`
+- **Support:** `support@miget.com` or `https://migetapp.com/join-discord`
