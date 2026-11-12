@@ -16,6 +16,7 @@ that the region has a small, finite number of.
 - [What a VPC is](#what-a-vpc-is)
 - [Endpoints](#endpoints)
 - [The two surprises](#the-two-surprises)
+- [A fixed address for an app](#a-fixed-address-for-an-app)
 - [Walking a customer through a private network](#walking-a-customer-through-a-private-network)
 - [Reaching a VPC from outside: the four terminators](#reaching-a-vpc-from-outside-the-four-terminators)
 - [VPN endpoints](#vpn-endpoints)
@@ -39,10 +40,12 @@ that the region has a small, finite number of.
   so egress leaves through the workspace's own gateway.
 - **Attaching restarts the workload.** An interface cannot be added to a running
   pod, so for an add-on this is a database restart. Say so before you do it.
-- An attached workload answers to `fqdn`. That name resolves to a **pod address**,
-  not a fixed one, and the record refreshes on the next attach, detach or route
-  change — treat it as a name to reach, never as a stable address. A cron job gets
-  no `fqdn` at all, because its pods are transient.
+- An attached workload answers to `fqdn`. Unless the attachment is static, that
+  name resolves to a **pod address**, not a fixed one, and the record refreshes on
+  the next attach, detach or route change — treat it as a name to reach, never as
+  a stable address. An application can ask for a fixed address with `static_ip`;
+  see [A fixed address for an app](#a-fixed-address-for-an-app). A cron job gets no
+  `fqdn` at all, because its pods are transient.
 - `resolver_v4` is the VPC's own DNS resolver. Point an external resolver at it to
   resolve `migetapp.internal` names from outside the platform.
 
@@ -57,19 +60,26 @@ public address.
 
 - `GET /api/v1/vpcs` - List the workspace's private networks
 - `POST /api/v1/vpcs` - Create one. `region_id` is required; `name` defaults to `default` and `cidr_v4` to `10.224.0.0/16`. A range that is not RFC1918, is smaller than `/22`, or overlaps a platform network is refused with **422** naming the conflict
-- `GET /api/v1/vpcs/{uuid}` - Get one, including `resolver_v4` and `vpn_pool_v4`
+- `GET /api/v1/vpcs/{uuid}` - Get one, including `resolver_v4`, `vpn_pool_v4` and `region_id`, the same integer `POST /api/v1/vpcs` takes
 - `PUT /api/v1/vpcs/{uuid}` - Change `label`, which is required. The name and the ranges are fixed at creation, because the platform derives the whole address plan from them on every action
 - `DELETE /api/v1/vpcs/{uuid}` - Delete it. **422** while any subnet remains — remove those first
 - `GET /api/v1/vpcs/{uuid}/subnets` - List subnets
+- `GET /api/v1/vpcs/{uuid}/subnets/{subnet_uuid}` - Get one subnet. **404** when the subnet is not in this VPC
 - `POST /api/v1/vpcs/{uuid}/subnets` - Create one (`name`, plus `cidr_v4` unless `family` is `ipv6`). Optional `family` — `dual` (default), `ipv4` for no IPv6 at all, `ipv6` for no IPv4 — and `public`, default `true`. `cidr_v6` is derived from the VPC's own when omitted. The range must sit inside the VPC's own and must not overlap a sibling
 - `DELETE /api/v1/vpcs/{uuid}/subnets/{subnet_uuid}` - Delete a subnet. **422** while a workload is still attached to it
-- `GET /api/v1/vpcs/{uuid}/attachments` - List attached workloads with the `fqdn` each answers to
-- `POST /api/v1/vpcs/{uuid}/attachments` - Attach a workload (`subnet_uuid`, `attachable_type` one of `App`/`Service`/`Addon`, `attachable_uuid`). **The workload restarts** — for an add-on that is a database restart. **422** when the workload runs in a different region from the VPC
+- `GET /api/v1/vpcs/{uuid}/attachments` - List attached workloads with the `fqdn` each answers to, and `static_ip`, `address_v4` and `address_v6` (the addresses are `null` unless `static_ip` is `true`)
+- `GET /api/v1/vpcs/{uuid}/attachments/{attachment_uuid}` - Get one attachment, with its `fqdn`, `subnet_uuid`, the workload it joined and its `static_ip` address fields. **404** when it is not in this VPC
+- `POST /api/v1/vpcs/{uuid}/attachments` - Attach a workload (`subnet_uuid`, `attachable_type` one of `App`/`Service`/`Addon`, `attachable_uuid`). **The workload restarts** — for an add-on that is a database restart. Optional `static_ip` (boolean, default `false`) gives an app a fixed address. **422** when the workload runs in a different region from the VPC
 - `DELETE /api/v1/vpcs/{uuid}/attachments/{attachment_uuid}` - Detach. The workload restarts again
+
+The six single-item reads (subnet, attachment, peer route, VPN gateway, VPN device, site connection) need `network:view` and answer **404** for a uuid that does not exist, belongs to another VPC, or sits in a VPC of another workspace. Each returns the same object as its list endpoint.
+
+An attachment also returns `subnet_uuid`, the subnet the workload joined, the same value `POST .../attachments` takes. A Cloudflare VPN gateway returns `organization` and `client_id`, both `null` for the other kinds; the client secret and the Tailscale auth key are never returned.
 
 An application can also join at creation, with `vpc_uuid` or `vpc_subnet_uuid` on
 `POST /api/v1/apps` — worth preferring, because it skips the restart that
-attaching afterwards costs.
+attaching afterwards costs. Add `vpc_static_ip: true` there for a fixed address;
+it is ignored without one of the two.
 
 ## The two surprises
 
@@ -86,6 +96,35 @@ one: attaching a workload usually needs no subnet call at all, and carving
 `10.224.1.0/24` by hand is refused with `422` for overlapping the subnet you
 already have.
 
+## A fixed address for an app
+
+An attachment's address is normally whatever the pod is given, and it changes
+whenever the pod is replaced. An **application** can ask for a fixed one instead:
+`static_ip: true` on `POST /api/v1/vpcs/{uuid}/attachments`, or `vpc_static_ip: true`
+with `vpc_uuid` or `vpc_subnet_uuid` on `POST /api/v1/apps`.
+
+- **The address comes back at once.** It is allocated when the attachment is
+  created and returned in that same response as `address_v4`, and as `address_v6`
+  when the subnet has an IPv6 range. The attachment's `fqdn` resolves to it.
+- **It is taken from the top of the subnet's range**, skipping the subnet's gateway,
+  the VPC's resolver and any address another attachment on the subnet holds. Pod
+  addresses are handed out from the bottom, so the two meet only when the subnet is
+  nearly full. A full subnet answers **422** with `No free address in subnet <name>`.
+- **Apps only.** A service or an add-on is refused with **422**. The app must run
+  a **single replica without autoscaling**: otherwise the attach is refused with
+  **422** saying which to change, and scaling the app past one replica or turning
+  autoscaling on afterwards is refused with **422** as well. The subnet must be
+  `active`.
+- **Deploys replace the pod instead of rolling it**, so the app is briefly down on
+  every deploy. Say so before you attach. The address then survives deploys,
+  restarts, rebuilds and node moves. Only the app's web process holds it; its
+  workers and cron jobs keep dynamic addresses.
+- **It is chosen at attach time.** An attachment that exists cannot be switched
+  between static and dynamic. Detach the app and attach it again, which restarts it
+  twice.
+- If the platform cannot pin the address, because it is already in use or is
+  invalid, the attachment ends `failed`. Detach it and attach again.
+
 ## Walking a customer through a private network
 
 1. **Ask what should stop being public**, not whether they want a VPC. Usually the
@@ -101,12 +140,16 @@ already have.
    created yet, pass `vpc_uuid` on create instead and skip its restart entirely.
 5. **Verify from inside**, not from the outside. Read `fqdn` off the attachment
    and have the application reach the database by that name. Tell them plainly it
-   is a name, not an address — it moves on the next rollout.
+   is a name, not an address — it moves on the next rollout, unless the
+   application was attached with `static_ip`.
 
 ### What to suggest next
 
 - **`private: true` on the application's subnet**, if egress should leave through
   their own gateway rather than the platform's.
+- **`static_ip: true` on the application**, when something outside needs a fixed
+  address to allow-list or dial. It costs a short downtime on every deploy, so offer
+  it rather than defaulting to it.
 - **WireGuard**, the moment somebody says "I need to connect to the database from
   my laptop" — that is the whole reason the VPN half exists.
 - **Their own resolver pointed at `resolver_v4`**, if they want `migetapp.internal`
@@ -127,9 +170,11 @@ the first site-to-site connection, which is what pays for its address.
 ## VPN endpoints
 
 - `GET /api/v1/vpcs/{uuid}/vpn_gateways` - List the terminators enabled on the VPC
-- `POST /api/v1/vpcs/{uuid}/vpn_gateways` - Enable one. `kind` is `wireguard`, `tailscale` or `cloudflare`; one of each per VPC. Cloudflare needs `organization`, `client_id` and `client_secret`; Tailscale needs `auth_key`. Those credentials are stored encrypted and **never returned by any endpoint**. Tailscale takes its tag from the auth key, so create that key tagged, reusable and ephemeral
+- `GET /api/v1/vpcs/{uuid}/vpn_gateways/{gateway_uuid}` - Get one terminator. Never returns the Cloudflare client secret or the Tailscale auth key
+- `POST /api/v1/vpcs/{uuid}/vpn_gateways` - Enable one. `kind` is `wireguard`, `tailscale` or `cloudflare`; one of each per VPC. Cloudflare needs `organization`, `client_id` and `client_secret`; Tailscale needs `auth_key`. Those credentials are stored encrypted; `client_secret` and `auth_key` are **never returned by any endpoint**. Tailscale takes its tag from the auth key, so create that key tagged, reusable and ephemeral
 - `DELETE /api/v1/vpcs/{uuid}/vpn_gateways/{gateway_uuid}` - Disable it, revoking every device on it. **422** while site-to-site connections still terminate on it. For an IPsec gateway this is what returns its public IPv4 to the pool — deleting the last connection stops the charge but leaves the address held until the gateway itself is disabled
 - `GET /api/v1/vpcs/{uuid}/vpn_users` - List the WireGuard devices, with the address each answers to
+- `GET /api/v1/vpcs/{uuid}/vpn_users/{user_uuid}` - Get one WireGuard device. Carries no private key and no config; the config is only at `.../config`, once
 - `POST /api/v1/vpcs/{uuid}/vpn_users` - Register a device. `name` is lowercase letters, numbers and hyphens. **422** if WireGuard is not enabled first
 - `GET /api/v1/vpcs/{uuid}/vpn_users/{user_uuid}/config` - The device's WireGuard config file. **Readable exactly once** — see below
 - `DELETE /api/v1/vpcs/{uuid}/vpn_users/{user_uuid}` - Revoke the device
@@ -158,6 +203,7 @@ match the dashboard — but a route naming a gateway that is not running is drop
 rather than installed, so an unnecessary one carries no traffic and does no harm.
 
 - `GET /api/v1/vpcs/{uuid}/peer_routes` - List staged and applied routes
+- `GET /api/v1/vpcs/{uuid}/peer_routes/{route_uuid}` - Get one route, staged or applied
 - `POST /api/v1/vpcs/{uuid}/peer_routes` - Stage one (`cidr`, `gateway_kind`, optional `description`). Every kind is accepted, but in practice only `cloudflare` and `tailscale` need one. Staging changes nothing yet
 - `POST /api/v1/vpcs/{uuid}/peer_routes/apply` - Send every staged route at once. **This restarts every workload attached to the VPC.** **422** when nothing is staged
 - `DELETE /api/v1/vpcs/{uuid}/peer_routes/{route_uuid}` - Remove one. A staged route goes outright; an applied one is withdrawn from the cluster, which restarts the workloads again
@@ -169,6 +215,7 @@ will cost before you do.
 ## Site-to-site tunnels
 
 - `GET /api/v1/vpcs/{uuid}/site_connections` - List the tunnels, each with the public address it holds
+- `GET /api/v1/vpcs/{uuid}/site_connections/{connection_uuid}` - Get one tunnel, with the public address it holds. The pre-shared keys are never returned
 - `POST /api/v1/vpcs/{uuid}/site_connections` - Create one. `name`, `remote_cidrs`, and `tunnels` (each `remote_gateway` plus `psk` from the far side's configuration); optional `peer_asn`
 - `DELETE /api/v1/vpcs/{uuid}/site_connections/{connection_uuid}` - Tear it down. This stops the $199/mo charge but does **not** release the public address — that is held by the IPsec gateway. Disable the gateway once its last connection is gone to get the address back
 

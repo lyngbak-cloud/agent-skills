@@ -34,10 +34,10 @@ A **Stack** deploys a multi-service application from a single `docker-compose.ym
 
 Stacks reuse `apps:*` permissions (read = `apps:view`, create/delete = `apps:manage`, deploy/config = `apps:deploy`/`operate`/`manage`).
 
-- `GET /api/v1/stacks` - List all stacks
+- `GET /api/v1/stacks` - List all stacks. Each entry also carries `compose_path` and `deployment_config`, the same as the detail response
 - `POST /api/v1/stacks/analyze` - Detect compose services and required env vars from a repo (creates nothing; call before creating)
 - `POST /api/v1/stacks` - Create a stack (analyzes the repo server-side, then provisions the apps/services)
-- `GET /api/v1/stacks/{uuid}` - Get stack details (computed `state`, `services`, `latest_deployment`, `deployment_config`)
+- `GET /api/v1/stacks/{uuid}` - Get stack details (computed `state`, `services`, `latest_deployment`, `deployment_config`). `deployment_config` holds `type` (`github` for a stack with a credential, `public_git` without), `repository` (owner/repo slug for `github`, `null` for `public_git`), `repository_url`, `branch`, `auto_deploy_enabled` (`null` for `public_git`) and `credential_id`, the UUID of the stored Git credential, `null` when none is set; `credential_id` and `repository_url` are the fields `POST /stacks` took. `repository_url` is normalized by the platform, so it can differ in form from the text you sent (a `.git` suffix, the host spelling)
 - `PUT /api/v1/stacks/{uuid}` - Update a stack (`label`, `compose_path`). `project_id` moves the stack, and every application and service it runs, to another project (requires `apps:manage`)
 - `DELETE /api/v1/stacks/{uuid}` - Delete a stack (cascades to its apps and services)
 - `POST /api/v1/stacks/{uuid}/deploy` - Trigger a redeploy (optional: `commit_sha`)
@@ -73,6 +73,11 @@ chosen freely — for example a Supabase `ANON_KEY` is a JWT signed with that st
 platform always computes those from their source, so a value you send for one in `env_var_overrides`
 is ignored. Supply the source variable (or let `auto_populate_required_vars` generate it) and the
 dependent values are derived to match.
+
+**Variables on redeploy:** `POST /api/v1/stacks/{uuid}/deploy` keeps every value saved for the stack.
+A required variable added to the compose file since the last deploy is generated only when the compose
+file gives it a generation rule (`generate`/`length`), and derived variables are computed from their
+source. A new required variable with no such rule is left unset; the redeploy does not fail on it.
 
 **Error responses to handle:**
 - `422 { "error": "Missing required environment variables: web.SECRET, ..." }` - a required var was neither supplied nor auto-populated; go back to step 2.
@@ -187,6 +192,18 @@ Rules when generating it:
   as managed add-ons and injects their connection variables — don't run them as raw containers.
 - Give every named volume an `x-miget: { size: "<MB or unit>", type: RWO }` (`RWX` only when the
   volume is shared across replicas).
+- A named volume mounted by more than one app or standalone service becomes one shared storage
+  service of that size, billed once, and each of them mounts it at its own path and sees the same
+  files. It is listed among the stack's items with `compose_service_type: volume` and
+  `compose_service_name: volume:<name>`. A volume only one service mounts stays that service's own
+  storage.
+- A volume keeps the kind it was first deployed as. A shared volume stays shared even when only one
+  service mounts it later. A volume first deployed as one service's own storage never becomes
+  shared: a deploy that adds a second service mounting it fails with
+  ``Volume `<name>` is block storage of `<service>` and cannot be shared with `<service>`.``
+- When no service mounts a shared volume any more, it is dropped from the stack's items and its
+  storage service is kept as an orphaned service with its data. It still counts against the
+  resource's disk until it is deleted.
 - `x-miget.vpc` names a VPC of the workspace in the resource's region, by name, or as
   `{ name, subnet }` for a subnet other than `default`. The service is created on it, and a
   redeploy attaches it when the key is added and detaches it when the key is removed; moving an

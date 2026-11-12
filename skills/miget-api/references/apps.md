@@ -43,8 +43,13 @@ An **Application** is a deployable service (web app, API, worker, etc.).
 - Apps can be **public or private** (`private_access`): a private app has no public ingress and is reachable only inside the workspace network. Settable on create/update (default `false`); returned in the app response.
 - Apps have an **internal URL** for app-to-app and addon connections, returned as `internal_url` on the app response in the form `<service_name>.<resource-name>.<region-code>.migetapp.internal:5000`. Traffic from other apps requires `allow_connections: true` on the **destination** app (default `false`, set via `PUT /apps/{uuid}/security`); once enabled, other applications on the same resource (miget) can reach it at its `internal_url`.
 - Apps also have a **public URL**, returned as `public_url` on the app response in the form `https://<name>.<region-code>.migetapp.com`. The region comes from the compute resource the app runs on, and since `resource_id` is required at creation, every app has one. It is built from `name`, not `label` or `service_name` — and because the server appends a random suffix to `name` at creation, the only reliable way to learn an app's URL is to read `public_url` back from the response. An app with `private_access: true` has no public ingress, so its `public_url` will not answer. Custom domains are **not** included here; they are listed separately under `GET /apps/{uuid}/domains`, which returns `[]` for an app that only has its platform URL.
-- Resource limits are reported under `quota` on the app response: `quota.ram_size` is in **bytes** (e.g. `134217728` = 128 MiB) and `quota.cpu_size` is a fractional core count. There are no top-level `ram_size`/`cpu_size` fields.
-- The app response also returns `basic_auth_enabled` (whether HTTP Basic Auth is enforced at the ingress). Basic Auth credentials are **never** returned by the API.
+- Resource limits are returned as `ram_size` (**MiB**, rounded to 6 decimal places) and `cpu_size` (cores), per instance, the same units `POST` and `PUT /apps` accept. Both are `null` when the app has no quota. The raw `quota` object is still returned, with its own `ram_size` in **bytes** (e.g. `134217728` = 128 MiB), so do not send `quota.ram_size` back as `ram_size`.
+- The app response also returns `basic_auth_enabled` (whether HTTP Basic Auth is enforced at the ingress) and `basic_auth_username` (`null` when none is set). The Basic Auth password is **never** returned.
+- `resource_id` is the UUID of the assigned compute resource, the value `POST /apps` takes. `vpc_uuid` and `vpc_subnet_uuid` identify the VPC and subnet the app is attached to, `null` when it is not attached.
+- `project_variables_enabled` says whether the app also receives its project's environment variables. `project_secret_files_enabled` says whether it also mounts its project's secret files; it is changed with `PUT /apps/{uuid}/secret_files/project_files_enabled`.
+- `health_checks` returns every health check setting under the names `PUT /apps/{uuid}/health_checks` takes, so a client can send back what it read. A path or number that was never set is returned as `null` and a flag that was never set as `false`.
+- `scaling_profile` returns the settings under the names `PUT /apps/{uuid}/scaling_profile` takes (`replicas`, `auto_scaling_enabled`, `auto_min_replicas`, `auto_max_replicas`, `scaling_start_time`, `scaling_end_time`, `cpu_threshold`, `memory_threshold`). `scaling_start_time` and `scaling_end_time` are `HH:MM` strings, `null` when no scheduled window is set. An app with no scaling profile runs one instance: `replicas` is `1`, `auto_scaling_enabled` is `false` and the other keys are `null`.
+- `deployment_config.credential_id` (for `container_registry`, `github` and `public_git`) is the UUID of the stored credential, the value `PUT /apps/{uuid}/deployment` accepts, `null` when none is set. `container_registry` also returns `command` and `args`; `github` also returns `dockerfile_path` and `build_context`.
 - Every app automatically gets **monitoring** — Grafana dashboards, metrics, and logs, with Prometheus/Loki-compatible query APIs at `metrics.miget.com`. Runtime metrics and app logs are **not** on the REST API; see the Monitoring & Observability section.
 
 ## Endpoints
@@ -53,7 +58,7 @@ An **Application** is a deployable service (web app, API, worker, etc.).
 
 - `GET /api/v1/apps` - List all applications
 - `POST /api/v1/apps` - Create new application
-- `GET /api/v1/apps/{uuid}` - Get application details (includes `deployment_method` and `deployment_config` with method-specific fields; for Kamal apps this includes `registry_password`, `registry_hostname`, `registry_username`, `registry_image`, and `ssh_keys`; also includes a nested `region` object with `id`, `name`, and `code`, plus a `private_access` boolean)
+- `GET /api/v1/apps/{uuid}` - Get application details (returns the settings described above, see the example below; includes `deployment_method` and `deployment_config` with method-specific fields; for Kamal apps this includes `registry_password`, `registry_hostname`, `registry_username`, `registry_image`, and `ssh_keys`; also includes a nested `region` object with `id`, `name`, and `code`, plus a `private_access` boolean)
 - `PUT /api/v1/apps/{uuid}` - Update application
 - `DELETE /api/v1/apps/{uuid}` - Delete application
 - `PUT /api/v1/apps/{uuid}/security` - Update security settings (network connectivity, Basic Authentication)
@@ -66,6 +71,63 @@ An **Application** is a deployable service (web app, API, worker, etc.).
 - `GET /api/v1/apps/{uuid}/deployments` - List deployments
 - `GET /api/v1/apps/{uuid}/deployments/{id}/logs` - Get build logs
 - `GET /api/v1/apps/{uuid}/activity` - Get paginated activity feed (deployments, config changes, audit events). Query params: `page`, `limit`. Returns an envelope `{ "activities": [{ action, description, resource, actor, timestamp, source }], "pagination": { page, limit, total } }`.
+
+### Example: `GET /api/v1/apps/{uuid}` (settings keys)
+
+```json
+{
+  "uuid": "0190f2c4-1111-7000-8000-000000000001",
+  "name": "acme-api-x7k2p",
+  "label": "Acme API",
+  "state": "running",
+  "deployment_method": "github",
+  "deployment_config": {
+    "type": "github",
+    "repository": "acme/api",
+    "branch": "main",
+    "auto_deploy_enabled": true,
+    "credential_id": "0190f2c4-2222-7000-8000-000000000002",
+    "dockerfile_path": "Dockerfile",
+    "build_context": "."
+  },
+  "basic_auth_enabled": true,
+  "basic_auth_username": "staging",
+  "quota": {"ram_size": 268435456, "cpu_size": 0.25},
+  "ram_size": 256.0,
+  "cpu_size": 0.25,
+  "resource_id": "0190f2c4-3333-7000-8000-000000000003",
+  "vpc_uuid": "0190f2c4-4444-7000-8000-000000000004",
+  "vpc_subnet_uuid": "0190f2c4-5555-7000-8000-000000000005",
+  "project_variables_enabled": true,
+  "project_secret_files_enabled": false,
+  "health_checks": {
+    "liveness_probe_enabled": true,
+    "liveness_probe_path": "/healthz",
+    "liveness_probe_initial_delay_seconds": 10,
+    "liveness_probe_timeout_seconds": 2,
+    "liveness_probe_period_seconds": 10,
+    "liveness_probe_failure_threshold": 3,
+    "liveness_in_app_failure_notification_enabled": true,
+    "liveness_email_failure_notification_enabled": false,
+    "readiness_probe_enabled": false,
+    "readiness_probe_path": null,
+    "startup_probe_enabled": false,
+    "startup_probe_path": null
+  },
+  "scaling_profile": {
+    "replicas": 2,
+    "auto_scaling_enabled": true,
+    "auto_min_replicas": 2,
+    "auto_max_replicas": 6,
+    "scaling_start_time": "08:00",
+    "scaling_end_time": "20:00",
+    "cpu_threshold": 70,
+    "memory_threshold": 80
+  }
+}
+```
+
+The `health_checks` object above is shortened: it always carries all 24 keys (readiness and startup have the same `_probe_initial_delay_seconds`, `_probe_timeout_seconds`, `_probe_period_seconds`, `_probe_failure_threshold` and `_in_app` / `_email` `_failure_notification_enabled` keys as liveness).
 
 ## App Deployments
 
@@ -174,6 +236,7 @@ Workspace-level Git credentials (GitHub App installs / personal access tokens) u
 - `private_access` (boolean) - Restrict the app to private access only — no public ingress, reachable only inside the workspace network (default `false`). Also accepted on `PUT /api/v1/apps/{uuid}`.
 - `vpc_uuid` (string) - Join a VPC at creation instead of attaching afterwards, which saves the restart an attach costs. The VPC's default subnet is used. The VPC must be in the same region as `resource_id`.
 - `vpc_subnet_uuid` (string) - Join this subnet specifically, when the VPC has more than one. It implies its VPC, so `vpc_uuid` can be left out.
+- `vpc_static_ip` (boolean) - Give the app a fixed address on the subnet it joins. Ignored unless `vpc_uuid` or `vpc_subnet_uuid` is given. Deploys then replace the pod instead of rolling it, so the app is briefly down on every deploy, and the app must keep a single replica without autoscaling. The address is returned by `GET /api/v1/vpcs/{uuid}/attachments`. See `references/networking.md`.
 
 #### Deployment Configuration by Method
 

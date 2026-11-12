@@ -33,9 +33,9 @@ A **Bucket** is an S3-compatible object storage container.
 
 ## Buckets (S3-Compatible Object Storage)
 
-- `GET /api/v1/buckets` - List all buckets
+- `GET /api/v1/buckets` - List all buckets (each entry carries `resource_id`, `policy` and `acl`, the same as the detail response)
 - `POST /api/v1/buckets` - Create new bucket
-- `GET /api/v1/buckets/{uuid}` - Get bucket details (includes S3 endpoint, S3 credentials, usage stats)
+- `GET /api/v1/buckets/{uuid}` - Get bucket details (includes S3 endpoint, S3 credentials, usage stats, and `resource_id`, the UUID of the resource the bucket belongs to, the value `POST /buckets` takes). `policy` is a JSON string and `acl` is an **XML** string; both are always present, `null` when unset
 - `PUT /api/v1/buckets/{uuid}` - Update bucket (label, project, visibility, disk size)
 - `DELETE /api/v1/buckets/{uuid}` - Delete bucket and all its contents
 - `PUT /api/v1/buckets/{uuid}/policy` - Set or update bucket policy (S3-compatible JSON)
