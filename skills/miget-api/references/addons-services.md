@@ -91,6 +91,88 @@ For PostgreSQL databases, also ask about:
 - `POST /api/v1/services/{id}/restore_backup` - Restore service from backup (PostgreSQL primary only, not available for replicas). Optional `backup_name` or `target_time` (not both), and boolean `to_new_cluster`: `true` restores into a new cluster and leaves the current one running, omitted or `false` replaces the current database
 - `POST /api/v1/services/{id}/reset_database` - Reset service database (PostgreSQL primary only, not available for replicas; requires `services:manage`, because nothing brings the data back)
 
+## What add-on and service reads return
+
+The settings listed below come back on the read in the unit the create and update endpoints accept, so a client can read a value and send it back.
+
+**Add-ons** (`GET /api/v1/apps/{uuid}/addons`, `GET /api/v1/apps/{uuid}/addons/{id}`):
+- `ram_size` (**MiB**), `disk_size` (**GiB**) and `cpu_size` (cores) are the values `POST` and `PUT /apps/{uuid}/addons` accept. `ram_size` and `disk_size` are rounded to 6 decimal places. All three are `null` when the add-on has no quota. On a free plan, creating a PostgreSQL, MySQL or Valkey add-on stores a `cpu_size` of `0.1` whatever was sent; `PUT` stores the value sent. The raw `quota` object is still returned and holds `ram_size` and `disk_size` in **bytes**; do not send those back.
+- `service_id` is the numeric ID of the service a storage add-on is mounted from, the value `POST /apps/{uuid}/addons` takes as `service_id`. `null` for add-ons not mounted from a service.
+- `backup_enabled` and `scheduled_backup` are PostgreSQL only and `null` for other types. They are the effective values: `backup_enabled` is `false` on a free plan whatever was stored, otherwise the stored value, and `true` when never set. `scheduled_backup` is a 6-field cron expression, `0 0 3 * * *` when none was set.
+- `role`, `primary_addon_uuid` and `replicas` are PostgreSQL only: `role` is `primary` or `replica`, `primary_addon_uuid` is set on a replica, and `replicas` lists `{uuid, name, label, state}` for a primary. `replicas` is returned by `GET /apps/{uuid}/addons/{id}` only, not by the list.
+- `settings` never contains `external_config` or `replication_config`.
+
+**Services** (`GET /api/v1/services/{id}`, and the responses of `POST /services`, `PUT /services/{id}`, `POST /services/{id}/create_replica`, `POST /services/{id}/mount_app` and `POST /services/{id}/unmount_app`). The list, `GET /api/v1/services`, returns none of the keys below:
+- `resource_id` is the UUID of the assigned resource, the value `POST /services` takes. `miget_id` carries the same UUID.
+- `ram_size` (**MiB**), `disk_size` (**GiB**) and `cpu_size` (cores) are read from the service's add-on quota and are `null` when the service has no add-on. `ram_size` and `disk_size` are rounded to 6 decimal places. On a free plan, creating a PostgreSQL service stores a `cpu_size` of `0.1` whatever was sent; `PUT` stores the value sent.
+- `public_access` is `null` for service types without the setting (`shared_storage`) or when the service has no add-on.
+- `instances` (1 for standalone, 3, 5 or 7 for an HA cluster) and `postgres_version` are PostgreSQL only and `null` for other types.
+- `mount_point` is the container mount path of a `shared_storage` service and `null` for other types.
+- `backup_enabled` and `scheduled_backup` are PostgreSQL only and `null` for other types or when the service has no add-on. They are the effective values, the same as on the add-on read: `backup_enabled` is `false` on a free plan whatever was stored, otherwise the stored value, and `true` when never set. `scheduled_backup` is a 6-field cron expression, `0 0 3 * * *` when none was set.
+- `mounts` lists the applications mounting a `shared_storage` service, one entry per `POST /services/{id}/mount_app`, each `{app_id, addon_uuid, mount_point, sub_path, label}`, limited to apps in projects you can access. `[]` for other service types.
+- The `settings` of the add-ons nested in a service never contain `external_config` or `replication_config`.
+
+```json
+{
+  "uuid": "0190f2c4-6666-7000-8000-000000000006",
+  "name": "postgres-mwvzq",
+  "type": "postgres",
+  "label": "Main database",
+  "quota": {"ram_size": 536870912, "disk_size": 5368709120, "cpu_size": 0.5},
+  "ram_size": 512.0,
+  "disk_size": 5.0,
+  "cpu_size": 0.5,
+  "service_id": null,
+  "backup_enabled": true,
+  "scheduled_backup": "0 0 3 * * *",
+  "role": "primary",
+  "primary_addon_uuid": null,
+  "replicas": []
+}
+```
+
+```json
+{
+  "uuid": "0190f2c4-7777-7000-8000-000000000007",
+  "resource_id": "0190f2c4-3333-7000-8000-000000000003",
+  "miget_id": "0190f2c4-3333-7000-8000-000000000003",
+  "service_type": "postgres",
+  "ram_size": 512.0,
+  "disk_size": 5.0,
+  "cpu_size": 0.5,
+  "public_access": false,
+  "instances": 3,
+  "postgres_version": "17",
+  "mount_point": null,
+  "mounts": [],
+  "backup_enabled": true,
+  "scheduled_backup": "0 0 3 * * *"
+}
+```
+
+A `shared_storage` service returns `mount_point` and `mounts`, and `null` for `public_access`, `instances`, `postgres_version`, `backup_enabled` and `scheduled_backup`:
+
+```json
+{
+  "service_type": "shared_storage",
+  "public_access": null,
+  "instances": null,
+  "postgres_version": null,
+  "backup_enabled": null,
+  "scheduled_backup": null,
+  "mount_point": "/shared-data",
+  "mounts": [
+    {
+      "app_id": "0190f2c4-1111-7000-8000-000000000001",
+      "addon_uuid": "0190f2c4-8888-7000-8000-000000000008",
+      "mount_point": "/data",
+      "sub_path": "media/uploads",
+      "label": "Storage #1 for shared-storage-service"
+    }
+  ]
+}
+```
+
 ## Create App Addon (`POST /api/v1/apps/{uuid}/addons`)
 
 An addon is attached to a specific application and its lifecycle is managed alongside the app.

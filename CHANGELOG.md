@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.0.9 — 2026-11-12
+
+A named compose volume mounted by more than one service becomes one shared storage, and the skill says what happens to it when its users change.
+
+- **A volume mounted by more than one app or standalone service becomes one shared storage service** of that size, billed once. Each service mounts it at its own path and sees the same files. It is listed among the stack's items with `compose_service_type: volume` and `compose_service_name: volume:<name>`. A volume only one service mounts stays that service's own storage
+- **A volume keeps the kind it was first deployed as.** A shared volume stays shared when only one service mounts it later. A volume first deployed as one service's own storage never becomes shared: a deploy that adds a second service mounting it fails with ``Volume `<name>` is block storage of `<service>` and cannot be shared with `<service>`.``
+- **A shared volume no service mounts any more is kept as an orphaned service with its data.** It is dropped from the stack's items and still counts against the resource's disk until it is deleted
+
+## 1.0.8 — 2026-11-12
+
+Redeploying a stack keeps its saved variables and fills in the ones the compose file added since.
+
+- **`POST /api/v1/stacks/{uuid}/deploy` keeps every value saved for the stack.** A required variable added to the compose file since the last deploy is generated only when the compose file gives it a generation rule (`generate`/`length`), and derived variables are computed from their source. A new required variable with no such rule is left unset; the redeploy does not fail on it
+
+## 1.0.7 — 2026-11-04
+
+Reads return settings in the units and under the names the write endpoints accept, so an agent can read a value and send it back. Every VPC child resource can be read on its own, and an application can hold a fixed address on its subnet.
+
+- **Apps return `ram_size` (MiB) and `cpu_size` (cores)** next to the raw `quota` in bytes, plus `basic_auth_username`, `resource_id`, `vpc_uuid`, `vpc_subnet_uuid`, `project_variables_enabled`, `project_secret_files_enabled`, every `health_checks` setting and the `scaling_profile` under the names their `PUT` endpoints take. `deployment_config.credential_id` is returned for `container_registry`, `github` and `public_git`, with `command`/`args` and `dockerfile_path`/`build_context`
+- **Add-ons and services return `ram_size` (MiB), `disk_size` (GiB) and `cpu_size`,** and the effective `backup_enabled` and `scheduled_backup` for PostgreSQL. Add-ons return `service_id`, `role`, `primary_addon_uuid` and `replicas`; a service returns `resource_id`, `public_access`, `instances`, `postgres_version`, `mount_point` and `mounts`. A new section lists what each read returns and when a value is `null`
+- **Buckets, resources, stacks and static sites return what their create takes:** a bucket's `resource_id`, `policy` and `acl` (also on the list), a resource's `region_code` and `component_quantities` (send those back, not `components`), a stack's `compose_path` and `deployment_config` on the list with `credential_id` and `repository_url`, and a static site's `deployment_config.credential_id`
+- **Single reads for every VPC child:** `GET` on a subnet, attachment, peer route, VPN gateway, VPN device and site connection, each needing `network:view` and answering `404` for one outside the VPC. A VPC returns `region_id`; an attachment returns `subnet_uuid`; a Cloudflare gateway returns `organization` and `client_id`, never the secret
+- **A fixed address for an application:** `static_ip: true` on `POST /api/v1/vpcs/{uuid}/attachments`, or `vpc_static_ip: true` on `POST /api/v1/apps`. The address comes back at once as `address_v4` (and `address_v6`), and the `fqdn` resolves to it. Apps only, single replica without autoscaling, and every deploy replaces the pod instead of rolling it, so the app is briefly down
+
 ## 1.0.6 — 2026-10-22
 
 Compose stacks can join a VPC and inherit project variables, the skill names the refusals an agent should relay rather than retry, and support moves to its own address.

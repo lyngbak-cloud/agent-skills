@@ -96,7 +96,7 @@ A **Resource** (internally called "Miget") is a compute resource that provides C
 
 - `GET /api/v1/resources` - List all resources
 - `POST /api/v1/resources` - Create new resource
-- `GET /api/v1/resources/{uuid}` - Get resource details
+- `GET /api/v1/resources/{uuid}` - Get resource details. Returns `region_code`, the value `POST /resources` takes, and `component_quantities`, the components grouped by `code_name` as `[{"code_name": "1gb-ram", "quantity": 2}]`, the shape `POST` and `PUT /resources` accept as `components` (`[]` when the resource has none). The `components` list renders identical units once, so it does not carry counts: send back `component_quantities`, not `components`
 - `PUT /api/v1/resources/{uuid}` - Update resource (change plan, add components)
 - `PATCH /api/v1/resources/{uuid}/labels` - Update resource labels
 - `DELETE /api/v1/resources/{uuid}` - Delete the resource and everything on it — applications, services, buckets, stacks — permanently. Takes that resource off the bill; **does not cancel the subscription**, which continues for the workspace plan and any other resources. There is no endpoint that cancels a subscription; see "Stopping the bill"

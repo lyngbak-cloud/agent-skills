@@ -68,6 +68,8 @@ the platform fills in during provisioning (a few seconds, normally):
 Do not construct the git remote or the SFTP host yourself from the site name. Read them
 back from `deployment_config`; they are empty until the platform fills them in.
 
+`deployment_config.credential_id` is the UUID of the stored credential, the value `PUT /api/v1/static/{uuid}/deployment` accepts, `null` when none is set. Bucket credentials are never returned. The list endpoint returns it too.
+
 After the first successful deploy the site leaves `pending`, and from then on `state`
 tells you what you expect it to.
 
