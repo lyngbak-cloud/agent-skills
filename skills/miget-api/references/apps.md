@@ -37,15 +37,16 @@ An **Application** is a deployable service (web app, API, worker, etc.).
 - Apps belong to a **Project** (for organization)
 - Apps can have **addons** (databases, caches, storage)
 - Apps can have **cronjobs** (scheduled tasks)
+- Apps can have **workers**: the processes their Procfile runs besides the web (`sidekiq`, `clock`, a queue worker). `GET /apps` and `GET /apps/{uuid}` list them under `workers`, each with `name`, `state` (`running`, `stopped` at zero replicas, or `failed`), `replicas` and `quota` (the same shape and units as the app's). They come from the code: no endpoint adds, removes or resizes one, and `PUT /api/v1/apps/{uuid}/workers/{name}` scales one (see "Scale a Worker" below). app.json's `formation` sets a worker's replicas on every deploy (`quantity`), and its size when it names one (`size`): a size code as `GET /api/v1/workspace/pay_per_use/sizes` lists it (`hobby-1c-512m`), or a Heroku dyno size: `eco`, `basic`, `standard-1x` (and the older `free`, `hobby`, `1x`) run at `hobby-1c-512m`, `standard-2x` (`2x`) at `hobby-1c-1g`, `private-s`/`shield-s` at `pro-1c-2g`, `performance-m`/`private-m`/`shield-m`/`px` at `pro-2c-4g`, `*-l` at `pro-8c-16g`, `*-l-ram` at `pro-16c-32g`, `*-xl` at `pro-32c-64g`, and a Fir `dyno-Nc-Mgb` at the smallest Pro size with at least N CPU and M GB. A worker with no size runs at the app's size; one the app's tier has no match for (a Pro code, performance or private dyno on a Hobby app, a Hobby code or shared dyno on a Pro app, any `*-2xl`) runs at the app's size and at most one replica, and the deployment says so. The `web` entry's `size` sets the app's own size the same way (not on free compute), over what the panel or `PUT /api/v1/apps/{uuid}` set: app.json wins on every deploy. Every size is held to what the app may run (the room on its resource, or the largest Usage Billing size), and `quota` reports what the build actually started. On a resource, workers come after everything else: its `available_ram_size` leaves them out. On Usage Billing, a worker is billed like its app, at its own size, for the replicas it runs.
 - Apps can have **domains** (custom domains)
 - Apps can have **environment variables** (vars)
 - Apps can have **ports** (exposed ports). Port `5000` is fixed: HTTP traffic on the app's `*.migetapp.com` URL is always served from port `5000` — the app must listen on `5000`, and this port cannot be removed or changed. Additional TCP/UDP ports can be added for custom protocols; they are **private by default** and can be exposed publicly via the expose endpoint (see "Manage App Ports" below, and https://docs.miget.com/networking/ports for the full list of supported ports).
 - Apps can be **public or private** (`private_access`): a private app has no public ingress and is reachable only inside the workspace network. Settable on create/update (default `false`); returned in the app response.
 - Apps have an **internal URL** for app-to-app and addon connections, returned as `internal_url` on the app response in the form `<service_name>.<resource-name>.<region-code>.migetapp.internal:5000`. Traffic from other apps requires `allow_connections: true` on the **destination** app (default `false`, set via `PUT /apps/{uuid}/security`); once enabled, other applications on the same resource (miget) can reach it at its `internal_url`.
-- Apps also have a **public URL**, returned as `public_url` on the app response in the form `https://<name>.<region-code>.migetapp.com`. The region comes from the compute resource the app runs on, and since `resource_id` is required at creation, every app has one. It is built from `name`, not `label` or `service_name` — and because the server appends a random suffix to `name` at creation, the only reliable way to learn an app's URL is to read `public_url` back from the response. An app with `private_access: true` has no public ingress, so its `public_url` will not answer. Custom domains are **not** included here; they are listed separately under `GET /apps/{uuid}/domains`, which returns `[]` for an app that only has its platform URL.
+- Apps also have a **public URL**, returned as `public_url` on the app response in the form `https://<name>.<region-code>.migetapp.com`. The region comes from the compute resource the app runs on, or from `region_code` for an app on Usage Billing or in the workspace pool; every app has one. It is built from `name`, not `label` or `service_name` — and because the server appends a random suffix to `name` at creation, the only reliable way to learn an app's URL is to read `public_url` back from the response. An app with `private_access: true` has no public ingress, so its `public_url` will not answer. Custom domains are **not** included here; they are listed separately under `GET /apps/{uuid}/domains`, which returns `[]` for an app that only has its platform URL.
 - Resource limits are returned as `ram_size` (**MiB**, rounded to 6 decimal places) and `cpu_size` (cores), per instance, the same units `POST` and `PUT /apps` accept. Both are `null` when the app has no quota. The raw `quota` object is still returned, with its own `ram_size` in **bytes** (e.g. `134217728` = 128 MiB), so do not send `quota.ram_size` back as `ram_size`.
 - The app response also returns `basic_auth_enabled` (whether HTTP Basic Auth is enforced at the ingress) and `basic_auth_username` (`null` when none is set). The Basic Auth password is **never** returned.
-- `resource_id` is the UUID of the assigned compute resource, the value `POST /apps` takes. `vpc_uuid` and `vpc_subnet_uuid` identify the VPC and subnet the app is attached to, `null` when it is not attached.
+- `resource_id` is the UUID of the assigned compute resource, the value `POST /apps` takes; `null` unless `billing` is `"resource"`. `vpc_uuid` and `vpc_subnet_uuid` identify the VPC and subnet the app is attached to, `null` when it is not attached.
 - `project_variables_enabled` says whether the app also receives its project's environment variables. `project_secret_files_enabled` says whether it also mounts its project's secret files; it is changed with `PUT /apps/{uuid}/secret_files/project_files_enabled`.
 - `health_checks` returns every health check setting under the names `PUT /apps/{uuid}/health_checks` takes, so a client can send back what it read. A path or number that was never set is returned as `null` and a flag that was never set as `false`.
 - `scaling_profile` returns the settings under the names `PUT /apps/{uuid}/scaling_profile` takes (`replicas`, `auto_scaling_enabled`, `auto_min_replicas`, `auto_max_replicas`, `scaling_start_time`, `scaling_end_time`, `cpu_threshold`, `memory_threshold`). `scaling_start_time` and `scaling_end_time` are `HH:MM` strings, `null` when no scheduled window is set. An app with no scaling profile runs one instance: `replicas` is `1`, `auto_scaling_enabled` is `false` and the other keys are `null`.
@@ -63,11 +64,12 @@ An **Application** is a deployable service (web app, API, worker, etc.).
 - `DELETE /api/v1/apps/{uuid}` - Delete application
 - `PUT /api/v1/apps/{uuid}/security` - Update security settings (network connectivity, Basic Authentication)
 - `PATCH /api/v1/apps/{uuid}/state` - Change app state (schedule_start/schedule_stop/schedule_restart)
-- `POST /api/v1/apps/{uuid}/clone` - Clone an application. Copies nothing by default beyond the app's own settings — env vars, secret files, scaling, health checks, security, add-ons and cronjobs are each opt-in. Requires `apps:manage`. A resource assigned to projects other than the target is refused with `422`. See the runbook under Endpoint Reference
+- `POST /api/v1/apps/{uuid}/clone` - Clone an application. Copies nothing by default beyond the app's own settings — env vars, secret files, scaling, health checks, security, add-ons and cronjobs are each opt-in. Requires `apps:manage`. The clone runs on a resource, or on Usage Billing or in the workspace pool like a new app. A resource assigned to projects other than the target is refused with `422`. See the runbook under Endpoint Reference
 - `PUT /api/v1/apps/{uuid}/deployment` - Update deployment method and configuration (switch methods, update Kamal SSH keys). `deployment_config_attributes` is a **patch**: fields you omit keep their stored value, and a field sent as `""` is cleared. Sending a *different* `deployment_method` builds the config from scratch, so supply every field that method needs.
 - `POST /api/v1/apps/{uuid}/deploy` - Trigger deployment (optional: custom_tag, commit_sha, branch). Not used for Kamal apps. Returns `409 Conflict` if a deployment is already in progress — poll `GET /apps/{uuid}/deployments` and retry once it settles. On a `github` app, a `commit_sha` that does not exist in the configured repository is rejected with `422` before any build starts, so push the commit first and pass a SHA from the same repository the app is configured with (a SHA from a fork or a squashed/force-pushed branch will not resolve). Other deployment methods do not check the SHA.
 - `PUT /api/v1/apps/{uuid}/health_checks` - Update health check probes (liveness, readiness, startup)
-- `PUT /api/v1/apps/{uuid}/scaling_profile` - Update scaling profile (replicas, auto-scaling, thresholds). Not available on free plan.
+- `PUT /api/v1/apps/{uuid}/scaling_profile` - Update scaling profile (replicas, auto-scaling, thresholds, and for an app on Usage Billing a monthly budget). Not available on free plan.
+- `PUT /api/v1/apps/{uuid}/workers/{name}` - Scale one worker on its own (replicas or auto-scaling); the web and the other workers keep theirs. Not available on free plan.
 - `GET /api/v1/apps/{uuid}/deployments` - List deployments
 - `GET /api/v1/apps/{uuid}/deployments/{id}/logs` - Get build logs
 - `GET /api/v1/apps/{uuid}/activity` - Get paginated activity feed (deployments, config changes, audit events). Query params: `page`, `limit`. Returns an envelope `{ "activities": [{ action, description, resource, actor, timestamp, source }], "pagination": { page, limit, total } }`.
@@ -182,11 +184,15 @@ For config a container needs **on disk** rather than in the environment — `ser
 ## App Cronjobs
 
 - `GET /api/v1/apps/{uuid}/cronjobs` - List cronjobs
+- `GET /api/v1/apps/{uuid}/cronjobs/sizes` - The sizes a cron job of this app can run at: `id` (the size code), `tier`, `cpu`, `ram_mb` and `cents_per_minute`. Requires `apps:view`
 - `POST /api/v1/apps/{uuid}/cronjobs` - Create cronjob
 - `GET /api/v1/apps/{uuid}/cronjobs/{id}` - Get cronjob details
-- `PUT /api/v1/apps/{uuid}/cronjobs/{id}` - Update cronjob (**only `label` and `command` are updatable**; the schedule cannot be changed via PUT — DELETE and recreate the cronjob to reschedule)
+- `PUT /api/v1/apps/{uuid}/cronjobs/{id}` - Update cronjob (**only `label`, `command`, `size`, `max_run_seconds` and `overage` are updatable**; the schedule cannot be changed via PUT — DELETE and recreate the cronjob to reschedule)
 - `DELETE /api/v1/apps/{uuid}/cronjobs/{id}` - Delete cronjob
+- `POST /api/v1/apps/{uuid}/cronjobs/{id}/pause` - Pause a cronjob: it starts no new run, a run already under way finishes, and while paused it is not billed and holds nothing in its resource. Requires `apps:operate`
+- `POST /api/v1/apps/{uuid}/cronjobs/{id}/resume` - Resume a paused cronjob. A cron job set to pause past its resource's cron minutes, while they are used up for the cycle, is refused with `422` and resumes by itself at the next renewal; set its `overage` to `bill` (`PUT .../cronjobs/{id}`) to run it now. Requires `apps:operate`
 - `GET /api/v1/apps/{uuid}/cronjobs/{id}/stream_logs` - Stream the most recent run's logs in real-time (SSE, text/event-stream; returns 404 until the job has run at least once)
+- `GET /api/v1/apps/{uuid}/cronjobs/{id}/runs` - The cron job's runs of the last 30 days, newest first, a page at a time: `{"runs": [...], "pagination": {"page", "limit", "total"}}`, with optional `page` (from 1) and `limit` (1 to 100, default 20). Each run has `job_name`, `status` (`running`, `succeeded`, `failed`), `started_at`, `finished_at` and `duration_seconds` (null while running), `exit_code`, and `reason` and `message` (for a failed run the Job's `DeadlineExceeded` or `BackoffLimitExceeded`, else the container's, such as `OOMKilled` or `Error`; a run that succeeded usually carries `Completed`). Runs are kept for 30 days. Requires `apps:view`
 
 ## App Preview Environments
 
@@ -199,7 +205,7 @@ Ephemeral clones of an app, one per GitHub pull request or branch. **Only for `g
 - `DELETE /api/v1/apps/{uuid}/preview_environments/{id}` - Schedule teardown. Returns **202**; the entry stays listed as `destroying` until it finishes
 - `POST /api/v1/apps/{uuid}/preview_environments/{id}/redeploy` - Redeploy the commit it already tracks. Returns **202**. Use it to retry a `failed` environment — new commits deploy on their own while `auto_deploy_on_push` is on
 - `GET /api/v1/apps/{uuid}/preview_environments/config` - Read the config. **404 when the app has never been configured** — that is the normal empty state, not an error; PUT to create it
-- `PUT /api/v1/apps/{uuid}/preview_environments/config` - Create the config the first time, update it after. Omitted fields keep their value. While `enabled` is true, a resource assigned to projects other than the target — `project_id`, or the app's own when omitted — is refused with `422`, whether it is `resource_id` or the app's own resource in `parent` mode. A config saved before its resource was assigned to another project is turned off (`enabled: false`) at the next pull request, and the reason is sent by email and in-app notification — pick another resource or project, then enable it again
+- `PUT /api/v1/apps/{uuid}/preview_environments/config` - Create the config the first time, update it after. Omitted fields keep their value. While `enabled` is true, a resource assigned to projects other than the target — `project_id`, or the app's own when omitted — is refused with `422`, whether it is `resource_id` or the app's own resource in `parent` mode. A config saved before its resource was assigned to another project is turned off (`enabled: false`) at the next pull request, and the reason is sent by email and in-app notification — pick another resource or project, then enable it again. An app on a resource can also run them without one: `resource_mode: pay_per_use` (`workspace_pool` on an enterprise contract) puts each preview environment in the app's region, billed on its own while it runs. Without a resource a preview environment runs at the size set by `size` (a code from `GET /api/v1/workspace/pay_per_use/sizes`, which carries its CPU class; an empty string goes back to the app's size) or on the CPU class set by `tier` — the app's own until you set them, so a preview of a dedicated, large production app need not be either. The add-ons it clones keep the app's sizes and run on the preview's CPU class. A size the class does not offer is a `422`. An app on Usage Billing (or in the workspace pool) takes only `parent`, which runs its preview environments the same way; any other mode is a `422`. Saving with `enabled: true` and a placement without a resource sets it up at once: `422` when Usage Billing is turned off for the workspace or when the app or an add-on it clones needs more RAM or disk than a workload without a resource can have, and `422` with `checkout_url` when the workspace has to pay the $5 Usage Billing monthly minimum first — send the user there, then PUT again. A workspace that no longer holds the minimum when a pull request arrives has the config turned off with that reason, since nobody is there to complete a checkout: enable it again to start the minimum. Turning on preview environments on Usage Billing, or moving enabled ones onto `pay_per_use`, takes `apps:manage` (`403` otherwise); turning them off and editing them afterwards takes `apps:operate`. When a workspace admin turns Usage Billing off, preview environments on Usage Billing are turned off with that reason
 
 ## Container Registry Credentials
 
@@ -224,19 +230,37 @@ Workspace-level Git credentials (GitHub App installs / personal access tokens) u
 - `name` (string) - Service name seed (lowercase, alphanumeric with hyphens). **The server appends a random suffix**, so the app you get back is named `my-api-x7k2p`, not `my-api`. Never build a URL or a Git remote from the name you sent — read `name` and `public_url` back from the create response. The unsuffixed form is kept separately as `service_name`, and `internal_url` is the **only** place it is used; every other identifier — `public_url`, the `git_push` repository path, the addon's `<ADDON_NAME>_URL` key — is built from the suffixed `name`. Reaching for `service_name` anywhere else produces a path that does not resolve. The suffix costs 6 characters and is applied *before* the 40-character limit is checked, so keep what you send to 34 characters or fewer — otherwise you get "Name is too long (maximum is 40 characters)" for a name that looked well under it. **`service_name` gets no suffix, and it must be unique across the whole workspace** — two apps seeded `api` collide even on different resources and in different projects, and the second is refused with a 422 naming the codename as already taken. Disambiguate the seed (`shop-api`, `blog-api`) rather than relying on the suffix, which protects `name` but not `service_name`.
 - `label` (string) - Human-readable display name
 - `project_id` (string) - UUID of the project to create the application in (get from `GET /api/v1/projects`)
-- `resource_id` (string) - UUID of the compute resource (Miget) to assign (get from `GET /api/v1/resources`). The app's region is derived from this resource.
+- `resource_id` (string) - UUID of the compute resource (Miget) to assign (get from `GET /api/v1/resources`). The app's region is derived from this resource. **Not required when `billing` is `"pay_per_use"` or `"workspace_pool"`** — see "Usage Billing" below. Otherwise, leaving it out is refused with a `422`.
 - `builder` (string) - Build strategy: `"auto"`, `"dockerfile"`, or `"custom"`. `"custom"` additionally requires `language` and `build_command` in `deployment_config` (see "Build Settings for `public_git` and `github`").
 
 **Optional but important:**
-- `ram_size` (float) - RAM allocation in MiB
-- `cpu_size` (float) - CPU allocation in cores
+- `ram_size` (float) - RAM allocation in MiB. On a resource only
+- `cpu_size` (float) - CPU allocation in cores. On a resource only
+- `size` (string) - On Usage Billing or in the workspace pool only, instead of `ram_size` and `cpu_size` (see "Usage Billing" below)
 - `deployment_method` (string) - `"git_push"`, `"public_git"`, `"github"`, `"container_registry"`, `"parent_image"`, or `"kamal"`. Note: the enum value is `container_registry` (not `docker_registry`). `container_registry` requires a paid resource — on a free-plan resource every write is rejected with `422`: creating an app with it, switching an existing app onto it, and changing the configuration (the image tag included) of an app already deployed from a registry.
 - `deployment_config` (object) - Configuration specific to the chosen deployment method (see table below)
 - `app_vars_attributes` (array) - Environment variables to set at creation (array of `{key, value}` objects)
 - `private_access` (boolean) - Restrict the app to private access only — no public ingress, reachable only inside the workspace network (default `false`). Also accepted on `PUT /api/v1/apps/{uuid}`.
-- `vpc_uuid` (string) - Join a VPC at creation instead of attaching afterwards, which saves the restart an attach costs. The VPC's default subnet is used. The VPC must be in the same region as `resource_id`.
+- `vpc_uuid` (string) - Join a VPC at creation instead of attaching afterwards, which saves the restart an attach costs. The VPC's default subnet is used. The VPC must be in the same region as `resource_id`. Refused with a `422` for `size: "free"`: free compute cannot join a private network.
 - `vpc_subnet_uuid` (string) - Join this subnet specifically, when the VPC has more than one. It implies its VPC, so `vpc_uuid` can be left out.
 - `vpc_static_ip` (boolean) - Give the app a fixed address on the subnet it joins. Ignored unless `vpc_uuid` or `vpc_subnet_uuid` is given. Deploys then replace the pod instead of rolling it, so the app is briefly down on every deploy, and the app must keep a single replica without autoscaling. The address is returned by `GET /api/v1/vpcs/{uuid}/attachments`. See `references/networking.md`.
+
+#### Usage Billing
+
+Instead of `resource_id`, an app can run on Usage Billing: without a resource, billed for the CPU, RAM and storage it reserves while it runs (rates and the $5 monthly minimum are in `references/workspace.md`). Send:
+
+- `billing` (string) - `"pay_per_use"`. `resource_id` is then ignored. (`"resource"`, the default, runs it on `resource_id`.)
+- `region_code` (string) - Where to run, e.g. `eu-east-1` (get from `GET /api/v1/regions`). Defaults to a region the workspace already runs in, or in a workspace with nothing placed yet to the first active region: send it when the region matters.
+- `size` (string) - A size code from `GET /api/v1/workspace/pay_per_use/sizes`, e.g. `hobby-1c-2g`: the CPU and RAM each replica reserves and is billed for, and its CPU class (`hobby-` shared, `pro-` dedicated). Leaving it out takes the smallest listed size with at least half a core. A size that is not listed is refused with a `422` naming the ones that are. **`cpu_size` and `ram_size` are refused with a `422` for an app on Usage Billing** — on create and on `PUT /api/v1/apps/{uuid}`, which resizes it by `size` too.
+- `tier` (string) - `"hobby"` (a shared slice of CPU) or `"pro"` (dedicated cores), for when no `size` names it; a `size` of the other class is refused with a `422`. **Hobby and Pro workloads run apart, and a workload cannot move between them or onto a resource afterwards**, so the choice is permanent for that app.
+
+Pick `size` deliberately: it is what is billed, on every replica. An app on Usage Billing scales up to the workspace's `replicas_per_process` limit, 20 on Team and set by the workspace plan unless raised (`GET /api/v1/workspace/limits`), in `replicas`, `auto_min_replicas` and `auto_max_replicas` of `PUT /api/v1/apps/{uuid}/scaling_profile`, each replica held to the largest standard plan of its CPU class and billed on its own; more is refused with `422`. The first workload on Usage Billing in a region may sit in `pending` a few moments longer than usual before it starts. If the workspace has no subscription to put the monthly minimum on, the request is refused with `422 {"errors": "...", "checkout_url": "..."}` and no app is created; send the person to `checkout_url`, then repeat the request. On an enterprise contract, or in a workspace that turned Usage Billing off, `billing: "pay_per_use"` is refused with a `422`.
+
+The response carries `billing: "pay_per_use"` and `miget: null`.
+
+#### In the workspace pool
+
+On an enterprise contract send `billing: "workspace_pool"` instead, with the same `region_code`, `size` and `tier` (the sizes endpoint returns no prices there). Nothing is billed by the hour; the app counts against the contract's capacity, and a request the pool cannot hold is refused with `422` naming what ran out. The response carries `billing: "workspace_pool"` and `miget: null`. See "Workspace pool" in `references/workspace.md`.
 
 #### Deployment Configuration by Method
 
@@ -259,11 +283,13 @@ Each `deployment_method` requires different fields in `deployment_config`:
 | `dockerfile_path` | string | `"./Dockerfile"` | Path to Dockerfile in the repository |
 | `build_context` | string | `"."` | Docker build context directory |
 
+The response's `deployment_config` of a `git_push` app also carries `ssh_url` and `https_url`, the two remotes to push to (read-only).
+
 **Before you choose `git_push` at all.** It is the method for code with no remote. If the repository already has one, `github` or `public_git` deploys from it with no credential handling, and `github` additionally gives auto-deploy and review apps — see "Choosing Defaults" in `SKILL.md`. Check `git remote -v` first.
 
 **Helping the user deploy a `git_push` app — SSH first.** There are two ways to authenticate, and they are not equally convenient. **Prefer SSH.** It uses the SSH key already on the user's account, needs no Git token, and every step is doable over the API. Fall back to HTTPS only when SSH genuinely will not work.
 
-*Read `region.code`, `miget.name`, and `name` from `GET /api/v1/apps/{uuid}` — both remote URLs are built from them, verbatim.* **The repository path is the app's `name`, with its random suffix — `wall-pfhqv`, not `wall`.** Do not substitute `service_name` or `label`, and do not strip the suffix because it looks like noise: `service_name` is the unsuffixed form and belongs to `internal_url` only. Pushing to the unsuffixed path fails to authenticate against a repository that does not exist. The resource segment is likewise `miget.name` as returned (`migetmxq`), never the resource's display label.
+*Read the remote from `GET /api/v1/apps/{uuid}`: `deployment_config.ssh_url` and `deployment_config.https_url` are the two remotes of a `git_push` app, ready to use.* An app on Usage Billing or in the workspace pool has no resource (`miget` is `null`), so these two fields are the only place its remote is given; do not try to build it yourself. They are built from `region.code`, the namespace the app runs in and its `name`. **The repository path is the app's `name`, with its random suffix — `wall-pfhqv`, not `wall`.** Do not substitute `service_name` or `label`, and do not strip the suffix because it looks like noise: `service_name` is the unsuffixed form and belongs to `internal_url` only. Pushing to the unsuffixed path fails to authenticate against a repository that does not exist. The first path segment is the resource or namespace name (`migetmxq`), never the resource's display label.
 
 **Option A — SSH (default).**
 
@@ -273,8 +299,8 @@ Each `deployment_method` requires different fields in `deployment_config`:
 
    ```bash
    git config push.autoSetupRemote true
-   # Both segments come from the API response: {miget.name} and {name}.
-   git remote add miget git@ssh.{region.code}.migetapp.com:{miget.name}/{name}.git
+   # deployment_config.ssh_url from the API response, verbatim.
+   git remote add miget {deployment_config.ssh_url}
    git push miget
    ```
 
@@ -294,11 +320,11 @@ Each `deployment_method` requires different fields in `deployment_config`:
 
    ```bash
    git config push.autoSetupRemote true
-   git remote add miget https://git.{region.code}.miget.io/{miget.name}/{name}
+   git remote add miget {deployment_config.https_url}
    git push miget
    ```
 
-   Git prompts for the username and password from step 1. Note the host differs from the SSH one: HTTPS is `git.{region}.miget.io`, SSH is `ssh.{region}.migetapp.com`. The path segments are the same suffixed `name` and `miget.name` as the SSH remote.
+   Git prompts for the username and password from step 1. Note the host differs from the SSH one: HTTPS is `git.{region}.miget.io`, SSH is `ssh.{region}.migetapp.com`. The path segments are the same as in the SSH remote.
 
 **For a directory that is not yet a repository**, prefix either option with `git init`, `git add .`, and `git commit -m "initial"`.
 
@@ -399,7 +425,7 @@ The two Git-based methods share a set of build fields. They are also accepted on
 
 To clear a field, send it as an empty string (`"pre_deploy_command": ""`). Note that `repository_url` (for `public_git`) and `repository` + `credential_id` (for `github`) must be present on every request even when unchanged.
 
-**Running database migrations.** Miget has no implicit release phase — nothing runs between the build finishing and the new replicas starting. Put migrations in `pre_deploy_command` so they run **once** before the new release goes live, rather than in the start command where every replica would run them on boot:
+**Running database migrations.** Miget has no implicit release phase — nothing runs between the build finishing and the new replicas starting. Put migrations in `pre_deploy_command` so they run **once** before the new release goes live, rather than in the start command where every replica would run them on boot. A Procfile `release` process, or app.json's `scripts.postdeploy` for the post-deploy step, wins over these fields, which apply only when the repository declares none:
 
 ```json
 {
@@ -576,7 +602,7 @@ All deployment methods follow the same initial steps: create a resource, create 
 # Pick plan_code_name from GET /api/v1/plans — never invent one.
 POST /api/v1/resources
 {
-  "plan_code_name": "miget_hobby_0",
+  "plan_code_name": "free",
   "region_code": "eu-east-1"
 }
 
@@ -814,11 +840,17 @@ DELETE /api/v1/apps/{app-uuid}/ports/{port-id}
 - `daily_time` (string) - Execution time for daily jobs in HH:MM format (24-hour)
 - `minute` (string) - Minute component for scheduling (0-59)
 - `hour` (string) - Hour component for scheduling (0-23)
+- `size` (string) - A size code from `GET /api/v1/apps/{uuid}/cronjobs/sizes`, e.g. `hobby-1c-1g`: the CPU and RAM each run gets. The codes are the resource plans' (`hobby-…` shared CPU, `pro-…` dedicated), and the app's CPU class decides which it is offered, whether the app runs on a resource or on Usage Billing. A minute is priced at the monthly price of the resource plan of that size over 43,200 minutes (`cents_per_minute`); on a resource, runs draw on the cron minutes its plan includes first, a run at a bigger size drawing more of them. Defaults to the smallest size with at least the app's RAM, whatever the app's CPU (the largest if none has that much); a size of the other class is refused with `422`
+- `max_run_seconds` (integer) - How long a run may take, from 1 to 86400 seconds (24 hours). A run still going then is stopped and ends `failed` with reason `DeadlineExceeded`. Leave it out or send `null` for no limit
+- `overage` (string) - What it does once its resource's cron minutes for the billing cycle are used up: `pause` (the default) until the next renewal, or `bill`, each run past them billed by the second at its size's price per minute on Usage Billing. **`bill` needs `apps:manage`** (403 otherwise; `pause` needs only `apps:operate`) and starts the $5 monthly minimum when the subscription pays for nothing else (422 with `checkout_url`). It applies only where the resource has cron minutes and is not on an enterprise contract; elsewhere it is ignored and the response's `overage` says what happens: `bill` on Usage Billing and on a plan that costs nothing, which include none, `pause` on a contract with a cron minute limit, `null` where no run is billed
 
 **Important notes:**
 - The identifier the platform runs the job under is generated, not chosen — it comes back as `name` (`cronjob-lhs2i`). A `name` you send is ignored.
-- Updating a cronjob (`PUT`) only changes `label` and `command`. The **schedule cannot be changed in place** — to reschedule, DELETE the cronjob and create a new one.
+- Updating a cronjob (`PUT`) only changes `label`, `command`, `size`, `max_run_seconds` and `overage`; a new size resizes the runs that follow, `max_run_seconds: null` removes the limit (leaving it out keeps it), and switching `overage` to `bill` resumes it if the used-up cron minutes paused it. The response carries it as `size`; `null` is a cron job created before sizes, which keeps its CPU and RAM until one is set.
+- `suspended: true` in the response is a paused cronjob. Besides `POST .../pause`, the platform pauses cron jobs when the workspace is suspended, when a resource is stopped for non-payment, when the spend limit is reached or a usage charge is refused, and when their resource's cron minutes are used up and they are set to pause; the last three resume them by themselves, once the limit is raised, the charge paid or the next renewal starts the minutes again. Resume the others with `POST .../resume`. A cron job created set to pause while its resource's minutes are used up starts paused.
+- **Cron jobs are billed for the time their runs take, at their size, on any resource plan including the free one — on a resource only past the cron minutes its plan includes** (1,000 a cycle at the plan's own size; `cron_minutes` on `GET /api/v1/resources/{uuid}`), and only for a cron job whose `overage` is `bill`; otherwise it pauses there until the renewal. On a resource exempted from billing that is the only charge it can bring, on an enterprise contract there is none, and on an app on Usage Billing or a resource on a plan that costs nothing every run is billed. The first cron job that is billed in a workspace whose subscription pays for nothing is refused with `422 {"errors": "...", "checkout_url": "..."}` for the $5 monthly minimum; send the person to `checkout_url`, then repeat the request. On a workspace in its free trial, the trial carries on and covers the plan only: runs are charged to the card while it runs, the first time once usage reaches $5, then at the charge threshold (see `references/workspace.md`). Usage never ends the trial. The **schedule cannot be changed in place** — to reschedule, DELETE the cronjob and create a new one.
 - Per-run logs are available via `GET /api/v1/apps/{uuid}/cronjobs/{id}/stream_logs` (SSE) once the job has run at least once.
+- Whether runs worked: `GET .../cronjobs/{id}/runs`. A failed run also opens a `cronjob_failed` issue on the cron job (`GET /api/v1/issues?app_id={uuid}`), which its next successful run resolves; the cron job keeps its schedule either way. Runs from before the platform recorded them are not listed.
 
 **Ask only what you cannot derive:**
 - "What display label should I use?"
@@ -835,7 +867,9 @@ No field is required — the first PUT creates the config, filling anything you 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | boolean | `false` | Create preview environments for this app |
-| `resource_mode` | string | `parent` | `parent` reuses the app's resource; `existing` requires `resource_id` |
+| `resource_mode` | string | `parent` | `parent` runs them where the app runs; `existing` requires `resource_id`; `pay_per_use` (`workspace_pool` on an enterprise contract) runs them without a resource, in the app's region. An app without a resource takes only `parent` |
+| `tier` | string | the app's | For preview environments without a resource: `"hobby"` for shared CPU, `"pro"` for dedicated; implied by `size`. Cloned add-ons run on the same class |
+| `size` | string | the app's | For preview environments without a resource: a size code from `GET /api/v1/workspace/pay_per_use/sizes`, e.g. `hobby-1c-2g`. `""` goes back to the app's size; a size the class does not offer is a `422` |
 | `resource_id` | string | — | Resource **UUID** preview environments run on. Required when `resource_mode` is `existing` |
 | `project_id` | string | — | Project **UUID** they land in. Omit to follow the parent app |
 | `trigger_mode` | string | `pull_request` | `pull_request` (one per PR) or `every_branch` (one per pushed branch) |
@@ -956,7 +990,51 @@ Configures auto-scaling. Not available on free plan.
 - `period_enabled` (boolean) - Enable time-based scaling windows
 - `scaling_start_time` (string) - Start time for scaling window (HH:MM, 24-hour)
 - `scaling_end_time` (string) - End time for scaling window (HH:MM, 24-hour)
-- `within_resources` (boolean) - Not implemented yet: scaling is always limited to the resource's allocation. Accepted but ignored.
+- `within_resources` (boolean, default `true`) - `false` scales an app on a resource **beyond its plan**: see below.
+
+**Scaling beyond the plan.** With `within_resources: false`, the first replica of an app on a resource runs on that resource as before, and every replica past it, up to the workspace's `replicas_per_process` limit (10 on Personal, 20 on Team; `GET /api/v1/workspace/limits`) in `replicas`, or `auto_max_replicas` when autoscaling, is billed by usage while it runs:
+- on a resource with **shared CPU**, for its RAM only — the extra replicas share the resource's CPU;
+- on a resource with **dedicated CPU**, for its CPU and RAM at the dedicated rate — the resource's CPU is raised by the extra replicas.
+
+Turning it on takes `apps:manage`; turning it back off, and changing replicas afterwards, takes what any scaling change takes. The resource keeps only the first replica booked, so it has room for other workloads. It is refused with `422` on a resource nobody pays for (such as the free plan), an app without a resource, an enterprise contract, an app with RWO storage, or while Usage Billing is turned off for the workspace. The first time it may need the $5 Usage Billing minimum (see Usage Billing in `references/workspace.md`): the request is then refused with `422 {"errors": "...", "checkout_url": "..."}` and nothing changes until a person completes that checkout. `within_resources: true` brings every replica back onto the resource and is refused with `422` when they do not fit — send fewer `replicas` in the same request. The workspace spend limit and the app's monthly budget both take such an app back to the one replica its resource holds rather than stopping it; while the spend limit holds it, more than one replica is refused with `422`. Its extra replicas are listed with every other workload in `GET /api/v1/workspace/usage`.
+- `max_monthly_budget` (integer or null) - **Only for an app billed for its replicas**: on Usage Billing, or on a resource with `within_resources: false`. A budget in whole US dollars for this application's own usage in a billing cycle; its add-ons are not counted. `null` removes it. Sent for any other app, it is refused with `422`.
+- `budget_notification_enabled` (boolean) - Email the workspace admins at 50% and 75% of the budget and when it is reached, each once per billing cycle.
+- `stop_at_budget_limit_enabled` (boolean) - At the budget, scale the application down to one replica.
+
+**Reaching the budget** is checked every minute. With `stop_at_budget_limit_enabled`, the application is scaled down to one replica with auto-scaling off. It is not stopped: it keeps serving, and its storage and that one replica keep being billed. While it is held there, a request that would run more than one replica is refused with `422`; other settings still save. It gets back exactly the scaling it had:
+
+- at the start of the next billing cycle, or once it runs again if it was stopped then;
+- at once, when the budget is raised above what the application has spent this cycle, removed, or `stop_at_budget_limit_enabled` is turned off. Replica settings sent in that same request are kept instead.
+
+Without `stop_at_budget_limit_enabled`, reaching the budget only sends the email. A changed budget does not send the warnings it is already past.
+
+Whether an app is held there right now is `held_at_monthly_budget` in `GET /api/v1/apps/{uuid}` (and in the app lists). Check it before scaling up an app on Usage Billing, and tell the user why a scale-up would be refused instead of retrying.
+
+## Scale a Worker (`PUT /api/v1/apps/{uuid}/workers/{name}`)
+
+Scales one worker, a process the Procfile runs besides the web, without touching the web or the app's other workers. Takes `apps:deploy`, `apps:operate` or `apps:manage`, as the app's own scaling does. Not available on free plan (`403`).
+
+**Required fields:**
+- `uuid` (string, path) - Application UUID
+- `name` (string, path) - The worker's `name` as `GET /api/v1/apps/{uuid}` lists it under `workers` (`404` for a name the app does not have)
+
+**Optional fields** (the app's own scaling fields, without the budget or `within_resources`):
+- `replicas` (integer) - Fixed number of replicas
+- `auto_scaling_enabled` (boolean) - Scale between `auto_min_replicas` and `auto_max_replicas` on the worker's CPU or memory use
+- `auto_min_replicas` (integer) / `auto_max_replicas` (integer) - The range when auto-scaling; the minimum is at least `1`, since autoscaling a worker to none is refused with `422`
+- `cpu_threshold` (integer) / `memory_threshold` (integer) - Usage % that triggers scale-up (1-100)
+- `period_enabled` (boolean) - `false` clears the daily window
+- `scaling_start_time` / `scaling_end_time` (string, HH:MM, 24-hour, UTC) - A daily window in which it runs `auto_max_replicas`
+
+**How many it may run.** Growing past this answers `422` with the reason in `errors`; scaling down is always accepted:
+- on Usage Billing or in the workspace pool, the workspace's `replicas_per_process` limit (`GET /api/v1/workspace/limits`; `POST /api/v1/workspace/limits/increase_requests` asks for more); in the pool, also only what the pool has room for;
+- on a resource, as many as fit in the RAM left after everything else on it, the workers recorded before this one included;
+- on free compute, none until the workspace starts Usage Billing: free compute covers the web alone;
+- whatever the above allows, a worker whose app.json size has no match in the app's CPU class is capped to at most one replica; naming a matching size in app.json's `formation` lifts it.
+
+**It lasts until the next deploy.** As for anything app.json declares, the next deploy sets the replicas app.json's `formation` gives this worker again; a worker the `formation` does not name keeps the count you set. To keep a count, put it in app.json.
+
+Returns the worker (`name`, `state`, `replicas`, `quota`); `replicas` is the new count at once (the minimum while it auto-scales), and `state` follows once the cluster reports it. A worker of an app on Usage Billing is billed at its own size for the replicas it runs, from when they run. The app's monthly budget counts its workers' usage, but reaching it scales only the web down.
 
 ## Change Application State (`PATCH /api/v1/apps/{uuid}/state`)
 
@@ -1013,7 +1091,7 @@ app", and it is not reversible from here.
 - `label` (string) - Display name for the cloned application
 - `name` (string) - Unique service name for the cloned application (lowercase, alphanumeric with hyphens)
 - `project_id` (string) - UUID of the project the clone is created in
-- `resource_id` (string) - UUID of the compute resource (Miget) the clone runs on
+- `resource_id` (string) - UUID of the compute resource (Miget) the clone runs on. **Not required when `billing` is `"pay_per_use"` or `"workspace_pool"`** — see below. Otherwise, leaving it out is refused with a `422`.
 
 **Optional fields:**
 - `use_parent_image` (boolean, default: false) - Run the source app's image instead of building
@@ -1041,6 +1119,17 @@ app", and it is not reversible from here.
   "cronjobs": []
 }
 ```
+
+#### Cloning onto Usage Billing or the workspace pool
+
+A clone does not have to run where its source does. Instead of `resource_id`, send the same placement a new app takes (see "Usage Billing" under Create Application):
+
+- `billing` (string) - `"pay_per_use"`, or on an enterprise contract `"workspace_pool"`; `resource_id` is then ignored. An unknown value is refused with `400`.
+- `region_code` (string) - Where the clone runs. **Defaults to the source app's region**, not to any region the workspace runs in. `clone_data` on an add-on is refused with `422` when the clone runs in another region than its source.
+- `tier` (string) - `"hobby"` (a shared slice of CPU) or `"pro"` (dedicated cores), implied by `size` when one is given. **Defaults to the source app's CPU class** (Pro when the source runs on a dedicated-CPU resource or on Usage Billing with dedicated CPU). Permanent for the clone.
+- `size` (string) - A size code from `GET /api/v1/workspace/pay_per_use/sizes`. **Leaving it out keeps the source app's CPU and RAM**, with CPU capped at the largest standard plan of the CPU class. `cpu_size`, `ram_size` and the free size are refused with `422` — a clone is never free compute — and so is `size` on a clone onto a resource.
+
+The application and every add-on you clone are each held to what one workload without a resource can have: more RAM or disk than that is refused with `422` before the clone is created, and an add-on's CPU is capped there. A clone that is the first workload without a resource in its region and CPU class is refused with `422` while that capacity is set up — repeat the request after a minute. If the workspace has to pay the $5 monthly minimum first, the request is refused with `422 {"error": "...", "checkout_url": "..."}` and no app is created; send the person to `checkout_url`, then repeat the request. The response carries `pay_per_use`, `workspace_pool` and `miget: null` as a new app placed that way does.
 
 #### After the call
 
@@ -1122,7 +1211,7 @@ GET /api/v1/resources
 # If none exists (plan_code_name comes from GET /api/v1/plans):
 POST /api/v1/resources
 {
-  "plan_code_name": "miget_hobby_0",
+  "plan_code_name": "free",
   "region_code": "eu-east-1"
 }
 

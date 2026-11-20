@@ -35,7 +35,7 @@ A **Bucket** is an S3-compatible object storage container.
 
 - `GET /api/v1/buckets` - List all buckets (each entry carries `resource_id`, `policy` and `acl`, the same as the detail response)
 - `POST /api/v1/buckets` - Create new bucket
-- `GET /api/v1/buckets/{uuid}` - Get bucket details (includes S3 endpoint, S3 credentials, usage stats, and `resource_id`, the UUID of the resource the bucket belongs to, the value `POST /buckets` takes). `policy` is a JSON string and `acl` is an **XML** string; both are always present, `null` when unset
+- `GET /api/v1/buckets/{uuid}` - Get bucket details (includes S3 endpoint, S3 credentials, usage stats, and `resource_id`, the UUID of the resource the bucket belongs to, the value `POST /buckets` takes, `null` unless `billing` is `"resource"`). `policy` is a JSON string and `acl` is an **XML** string; both are always present, `null` when unset
 - `PUT /api/v1/buckets/{uuid}` - Update bucket (label, project, visibility, disk size)
 - `DELETE /api/v1/buckets/{uuid}` - Delete bucket and all its contents
 - `PUT /api/v1/buckets/{uuid}/policy` - Set or update bucket policy (S3-compatible JSON)
@@ -57,18 +57,21 @@ included, so `docs/report.pdf` goes in the path as `docs%2Freport.pdf`.
 
 ## Create Bucket (`POST /api/v1/buckets`)
 
+**A workspace holds a limited number of buckets:** `buckets_per_workspace` (50 on Personal, 100 on Team, 150 on Organization, 200 on Enterprise, unless Miget set another value); past it the request is refused with `422` naming the limit. Read `GET /api/v1/workspace/limits` before creating one.
+
 **Required fields:**
 - `label` (string) - Human-readable display name for the bucket
 
 **Optional but important:**
-- `resource_id` (string) - UUID of the compute resource to attach the bucket to (get from `GET /api/v1/resources`). Optional at the API level, but a bucket needs a resource — supply this (or the legacy alias `miget_id`, deprecated) in practice.
+- `resource_id` (string) - UUID of the compute resource to attach the bucket to (get from `GET /api/v1/resources`), or the legacy alias `miget_id` (deprecated). One of `resource_id`, `miget_id` or `billing` is required.
+- `billing` (string) - `"pay_per_use"` keeps the bucket without a resource and pays for the data it holds, measured every hour (see `references/workspace.md`), with `region_code` for where; `resource_id` is then ignored. A workspace with no subscription for the monthly minimum gets `422` with `error` and a `checkout_url` to complete first. On an enterprise contract, `"workspace_pool"` keeps it without a resource in the workspace pool instead, with `region_code`; its `disk_size` counts against the contract's storage and a bucket the pool cannot hold is refused with `422`. `"resource"` (the default) keeps it on `resource_id`. The response carries `billing` and, without a resource, `miget: null`.
 - `project_id` (string) - UUID of the project the bucket belongs to (get from `GET /api/v1/projects`). Never inferred: omit it and the bucket is created with no project, even in a workspace with a single project. Send `null` on `PUT /api/v1/buckets/{uuid}` to unassign an existing bucket.
 - `visibility` (string) - Bucket visibility: `"public_access"` or `"private_access"` (default: `"private_access"`)
-- `disk_size` (float) - Disk allocation in GiB (default: 0.1)
+- `disk_size` (float) - Disk allocation in GiB (default: 0.1). With `billing` `"pay_per_use"` it is the most the bucket may hold, not what it is charged for
 
 **Ask only what you cannot derive:**
 - "What should be the bucket's display name?"
-- "Which resource (Miget) should the bucket be attached to? (provide resource ID)"
+- "Should the bucket be attached to a resource (which one?) or on Usage Billing (in which region?)"
 - "Which project should the bucket belong to, or should it stay outside any project?"
 - "Should the bucket be public or private? (default: private)"
 - "How much storage do you need in GiB? (default: 0.1 GiB)"

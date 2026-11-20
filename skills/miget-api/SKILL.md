@@ -1,7 +1,7 @@
 ---
 name: miget-api
 description: Deploy and manage apps, databases, buckets, private networks and services on Miget PaaS. Covers authentication, resource provisioning, deployments, add-ons, domains, environment variables, VPCs and VPN, and every API endpoint. Use this skill whenever the user mentions Miget, deploying an app to Miget, a miget/resource, or asks to ship, host, scale or debug an application on the Miget platform — including when they only describe the goal ("get this Rails app online", "give my database a private address") without naming Miget.
-version: 1.0.9
+version: 1.1.0
 ---
 
 # Miget API - Guide for AI Agents
@@ -27,14 +27,16 @@ These are the platform's fixed rules. Most failed first deployments trace back t
 | **Extra ports are private, and TCP/UDP only** | Additional ports default to private — pass `public: true` at creation or `PATCH .../expose_publicly` afterwards. They carry TCP/UDP, not HTTP. Port management is unavailable on the free plan (403). |
 | **App-to-app traffic is off by default** | `allow_connections` is `false` until set on the **destination** app (`PUT /api/v1/apps/{uuid}/security`). Until then it is not reachable at its `internal_url` from other apps on the same resource. |
 | **Runtime logs and metrics are not on the REST API** | The REST API serves build/deploy logs and cron run logs only. Application logs and metrics come from the Loki/Prometheus APIs at `metrics.miget.com`, using the *same* `miget_live_` token and an `X-Workspace-Id` header — there is no separate Grafana credential. |
+| **A workload runs on a resource or on Usage Billing** | Every app, service, bucket and stack is created either on a resource (`resource_id`) or on Usage Billing, with `billing: "pay_per_use"` and a `region_code` (plus a `size` code from `GET /api/v1/workspace/pay_per_use/sizes`, e.g. `hobby-1c-2g`, where there is CPU — never `cpu_size`/`ram_size`, which are refused there). The choice is permanent. The first workload on Usage Billing starts a $5 monthly minimum unless the subscription already pays for something else, and a workspace without a subscription gets a `422` carrying a `checkout_url` a person has to complete before it can be created. Not offered on an enterprise contract. See `references/workspace.md`. |
 | **Basic Auth credentials are never returned** | The app response tells you whether Basic Auth is on, never what the credentials are. Do not try to read them back. |
 | **`quota` is in bytes** | `quota.ram_size` is bytes (`134217728` = 128 MiB), `quota.cpu_size` is a fractional core count. There are no top-level `ram_size`/`cpu_size` fields on the response. |
-| **CPU is never the capacity constraint** | Placement and capacity are checked against **RAM and disk only** — CPU is not a quota and is never the reason an app or addon cannot be created. On dev plans (the free plan included) `cpu_size` is a *ceiling*, not a reservation: the **Miget Fair Scheduler** distributes the resource's CPU dynamically across every app and addon on it, so an idle process holds nothing back from a busy one. Guaranteed, dedicated CPU is a Pro-plan feature. Never tell a user that a database "will eat the CPU" of a small resource, and never refuse to co-locate an app and its database on that ground — decide on RAM. |
+| **CPU is never the capacity constraint** | Placement and capacity are checked against **RAM and disk only** — CPU is not a quota and is never the reason an app or addon on a resource cannot be created (a workload on Usage Billing takes a listed `size` instead of `cpu_size` and `ram_size`, see `references/workspace.md`). On dev plans (the free plan included) `cpu_size` is a *ceiling*, not a reservation: the **Miget Fair Scheduler** distributes the resource's CPU dynamically across every app and addon on it, so an idle process holds nothing back from a busy one. Guaranteed, dedicated CPU is a Pro-plan feature. Never tell a user that a database "will eat the CPU" of a small resource, and never refuse to co-locate an app and its database on that ground — decide on RAM. |
 | **A database addon injects two variables, not one** | A `postgres` or `mysql` addon sets **both** `<ADDON_NAME>_URL` (e.g. `POSTGRES_YZQUW_URL`) and `DATABASE_URL` to the same connection string; `valkey` sets `<ADDON_NAME>_URL` and `REDIS_URL`. The generic alias is skipped only if the app already has a variable of that name, which is never overwritten. Read `GET /api/v1/apps/{uuid}/vars` instead of guessing, and do not add a duplicate `DATABASE_URL` "because the framework needs one". |
 | **`name` is server-assigned and always suffixed** | The server appends a random suffix to whatever `name` you send — `wall` comes back as `wall-pfhqv`, and a resource is `migetmxq`. Apps, addons, services, stacks and buckets all work this way. **Secret files go further** — you cannot send a name at all, only `filename` and `text`, and the whole name is generated server-side (`secret-file-gfeey`). **The suffixed `name` is the identifier everywhere**: public URLs, Git remote paths, connection variable keys. `service_name` (the unsuffixed form) appears in exactly one place, `internal_url`, and `label` is display text with no addressing role. Never reconstruct any of these from the name you sent, and never strip a suffix that looks like noise — read the field back and use it verbatim. |
 | **`state` mixes two vocabularies** | On apps, addons and services `state` reports the platform lifecycle while the object is provisioning and the raw **Kubernetes** status once it is up. There is no `active`, and a healthy database reports **`healthy`** (storage reports **`bound`**) — only an *app* reports `running`. Never poll for one hard-coded string; see "Reading `state`". |
 | **Addon vs standalone service** | An addon's lifecycle is tied to its app and is the right default — deleting the app deletes it. A standalone service outlives any single app. Note that explicit mounting works only for `shared_storage`; a shared database is shared by pointing several apps at its connection variables, not by mounting it. |
 | **Billing is not on the API — and deleting is not cancelling** | There is no endpoint that cancels a subscription, changes a plan's payment, suspends or deletes a workspace. Those are dashboard-only, on purpose. The trap is `DELETE /api/v1/resources/{uuid}`: it destroys the resource and everything on it, but the **subscription keeps charging** for the workspace plan and any other resource. Deleting things over the API never stops a bill. Send the user to the dashboard — see "Stopping the bill" in `references/workspace.md`. |
+| **Limits are readable before they refuse** | Replicas per process, mounts per shared storage, databases and buckets per workspace, the usage charge threshold and the largest single workload on Usage Billing are workspace limits: `GET /api/v1/workspace/limits` lists each with what is in use, so read it before scaling or mounting rather than learning a limit from a `422`. Raising one is a request Miget reviews by hand, not an instant change — see "Limits" in `references/workspace.md`. |
 | **A compose file means a Stack** | A repository with `docker-compose.yml` is a Stack, not an App, and uses an entirely different set of endpoints. Do not try to force it into a single app. |
 
 ---
@@ -183,7 +185,7 @@ Derive these rather than asking. Read live values from `GET /api/v1/plans` and `
 
 **Resource.** Reuse an existing resource with enough free RAM before creating a new one — `GET /api/v1/resources`. A new resource is a new monthly charge; reusing one is free. When you do need a new one, pick the **cheapest plan from `GET /api/v1/plans` whose `ram_size` and `disk_size` cover the app plus every addon you are about to attach**, with a little headroom — the app and its databases all draw on the same resource. Size on RAM and disk only: CPU is not part of this arithmetic (see Platform Constraints). Do not reach for a larger plan speculatively; resizing later is easy.
 
-**Always set `ram_size` and `cpu_size` explicitly.** If you omit them, the app is given *the entire remaining RAM and CPU of the resource*, leaving no room for anything else on it. This is the single most common way to quietly wedge an account. Values are in MiB and fractional cores; the floor for placing an app is 128 MiB. **Mind the asymmetry:** sizes you *send* (`ram_size`, `disk_size` on create/update) are MiB/GiB, while sizes the API *returns* (`quota.*`, plan `ram_size`, resource `total_/available_*`) are bytes. Never compare a value you sent against one you read back without converting.
+**On a resource, always set `ram_size` and `cpu_size` explicitly** (on Usage Billing, send `size` instead). If you omit them, the app is given *the entire remaining RAM and CPU of the resource*, leaving no room for anything else on it. This is the single most common way to quietly wedge an account. Values are in MiB and fractional cores; the floor for placing an app is 128 MiB. **Mind the asymmetry:** sizes you *send* (`ram_size`, `disk_size` on create/update) are MiB/GiB, while sizes the API *returns* (`quota.*`, plan `ram_size`, resource `total_/available_*`) are bytes. Never compare a value you sent against one you read back without converting.
 
 | Workload | `ram_size` | `cpu_size` |
 |---|---|---|
@@ -221,11 +223,13 @@ Prefer an **addon** over a standalone service unless more than one app genuinely
 
 **The free plan needs a card on file.** Nothing is charged. A request for a free resource from an account with no saved card is rejected with `422` and a message saying so; a card that cannot be used for it is rejected the same way, pointing at support. Cards added through Apple Pay or Google Pay count. This applies to creating a resource and to moving an existing one down to the free plan. An account with a workspace suspended for abuse gets no free resource at all; it is rejected with `422` pointing at support — relay that, do not retry.
 
-**A new account gets 30 days free on Hobby 5 — and only there.** A new account gets a 30-day free trial when it buys plan `miget_hobby_5` **on its own, with no `components`**. The checkout link comes back as usual and charges nothing today; billing starts at the end of the trial at the plan's normal price, and cancelling before then costs nothing. Miget decides whether an account qualifies; one that does not gets an ordinary purchase at the plan's normal price. Any other plan is an ordinary purchase, cheaper ones included, and so is Hobby 5 with a paid component on the same request — there is no partial version of this.
+**A new account gets 30 days free on Hobby 5 — and only there.** A new account gets a 30-day free trial when it buys plan `hobby-2c-4g` (formerly `miget_hobby_5`) **on its own, with no `components`**. The checkout link comes back as usual and charges nothing today; billing starts at the end of the trial at the plan's normal price, and cancelling before then costs nothing. Miget decides whether an account qualifies; one that does not gets an ordinary purchase at the plan's normal price. Any other plan is an ordinary purchase, cheaper ones included, and so is Hobby 5 with a paid component on the same request — there is no partial version of this.
 
 It needs **a saved payment card**, exactly like the free plan and with the same `422`: no card on file, or a card that cannot be used for the trial, and the request is rejected before any resource exists. Reading the plan the user asked for and quietly buying it without the trial would cost them money they did not expect, so relay the rejection and point at billing settings instead.
 
 Once a trial is running, adding a resource or moving up to a dearer plan **ends it immediately and bills the new total that day** — a downgrade or a sideways move does not. Say this before an agent "upgrades while it is free anyway".
+
+**Usage Billing does not end the trial, and is not free during it.** Creating something with `billing: "pay_per_use"`, or a cron job set to bill, keeps the trial running, but the trial covers the plan only: usage is charged to the card while the trial runs, the first time once it reaches $5. Say this before creating it.
 
 **The free plan.** One free resource per user, personal workspaces only, and it is small: 0.1 core, 256 MiB RAM, 1 GiB disk — so the app **and every addon on it** must together fit inside 256 MiB of RAM and 1 GiB of disk. It also cannot use public custom ports, autoscaling, cron jobs, Postgres backups, or `container_registry` deployments, and addon CPU is pinned to 0.1 regardless of what you request. It suits a first deploy or a demo; say plainly when a project has outgrown it rather than trying to squeeze it in.
 
@@ -234,6 +238,8 @@ Once a trial is running, adding a resource or moving up to a dearer plan **ends 
 A free resource holding **no apps and no services** is deleted after 30 days of inactivity; one with an app on it is never auto-deleted.
 
 **Free-plan apps sleep.** An app on the free plan that has served no HTTP request for 30 minutes is scaled to zero, the databases attached to it are put to sleep with it, and its `state` reads `sleeping`. The next request wakes it, and so does a WebSocket or SSE connection, a connection to one of its databases, or `PATCH .../state` with `schedule_start`. The request that wakes it is answered with **`503`** while the app starts — so a `503` from a free app that was idle is a wake-up in progress, not a broken deploy: retry with a backoff before reporting a failure. A standalone PostgreSQL service on the free plan sleeps the same way after 30 minutes with no client connected, and wakes on the next connection. Paid plans never sleep, and upgrading a resource wakes whatever is asleep on it.
+
+**Free compute is the other free option**, on Usage Billing rather than a resource: any number of apps at 0.1 core and 512 MiB each, sharing 750 running hours a month per account and sleeping after 15 minutes without traffic, plus one free PostgreSQL service and one free Valkey service. It suits an app with a database better than the free plan's 256 MiB, and the two exclude each other. Its rules and refusals are in `references/workspace.md` under "Free compute".
 
 **A free app left asleep loses its add-ons.** After 30 days of continuous sleep, the app's add-ons enter a 14-day grace period; on day 44 they are permanently deleted, databases included, and the app is stopped. A standalone free database follows the same schedule. Workspace admins are emailed on days 23 and 29, when the grace period starts, and when the deletion happens. Any wake resets the clock, and an app with nothing attached is never deleted. Say this before putting data the user cares about on the free plan, and do not build an argument for it on guaranteed uptime.
 
@@ -245,13 +251,13 @@ Present exactly one of these before creating anything, then ask once.
 >
 > | | | Why |
 > |---|---|---|
-> | Resource | new, `Miget Hobby Tier 2` (1 core, 1 GiB) in `eu-east-1` | no existing resource in this workspace; 1 GiB fits the app plus the database |
+> | Resource | new, `Miget Hobby Tier 1` (1 core, 1 GiB) in `eu-east-1` | no existing resource in this workspace; 1 GiB fits the app plus the database |
 > | App | `acme-storefront`, builder `auto`, 512 MiB / 0.5 core | `package.json` → Next.js 15 |
 > | Deploy from | GitHub `acme/storefront`, branch `main` | current repo remote |
 > | Database | PostgreSQL addon | `drizzle.config.ts` → `dialect: "postgresql"` |
 > | Migrations | `pre_deploy_command: npx drizzle-kit migrate` | migrations in `drizzle/` |
 > | Env vars | 6 imported from `.env.local`; `NEXTAUTH_SECRET` generated | — |
-> | **Cost** | **$7.00/month** | the resource plan; the addon draws on its capacity, not a separate charge |
+> | **Cost** | **$5.00/month** | the resource plan; the addon draws on its capacity, not a separate charge |
 >
 > Guessing on: region (no signal in the repo — say the word if you want somewhere else).
 >
@@ -277,11 +283,11 @@ The same moment, explanatory:
 
 > Your app needs somewhere to run, so I'll create a **resource** — a small slice of compute in Miget's `eu-east-1` region — and put the app on it. Drizzle is pointing at PostgreSQL, so I'll attach a **Postgres addon**: a managed database whose connection string lands in your app's environment automatically, and whose lifecycle follows the app. Your migrations will run once before each release rather than on every restart.
 >
-> That comes to $7.00/month — the database runs inside the same resource, so it is not billed separately. Shall I go ahead?
+> That comes to $5.00/month — the database runs inside the same resource, so it is not billed separately. Shall I go ahead?
 
 and terse:
 
-> `miget_hobby_2` in `eu-east-1`, app `acme-storefront` (builder `auto`, 512 MiB/0.5, GitHub `acme/storefront@main`), Postgres addon, `pre_deploy_command: npx drizzle-kit migrate`, 6 vars from `.env.local`. $7/mo. Go?
+> `hobby-1c-1g` in `eu-east-1`, app `acme-storefront` (builder `auto`, 512 MiB/0.5, GitHub `acme/storefront@main`), Postgres addon, `pre_deploy_command: npx drizzle-kit migrate`, 6 vars from `.env.local`. $5/mo. Go?
 
 **Register changes how much is explained. It never changes how much is done without asking.** Both versions above make the same decisions and both stop at the same single confirmation. Inverting that — acting more freely for users who seem inexperienced — would give the least oversight to the people least able to catch a mistake.
 
@@ -291,7 +297,7 @@ A deployment reaching `completed` means the image built and the pods started. It
 
 1. Poll `GET /api/v1/apps/{uuid}/deployments/{id}` until the status settles.
 2. Request the app's URL.
-3. If that fails, pull build logs from `GET /api/v1/apps/{uuid}/deployments/{id}/logs`, and runtime logs from the Loki API (see `references/observability.md` — runtime logs are not on the REST API).
+3. If that fails, pull build logs from `GET /api/v1/apps/{uuid}/deployments/{id}/logs`, and runtime logs from the Loki API (see `references/observability.md` — runtime logs are not on the REST API). If the app, a worker or its database was stopped, `GET /api/v1/issues?app_id={uuid}` says why.
 4. Work the table below.
 5. Fix and redeploy, or tell the user precisely what is wrong. Never report a deployment as successful without having checked the URL.
 

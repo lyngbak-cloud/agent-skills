@@ -38,7 +38,7 @@ Workspace-level outbound webhooks. Miget POSTs a signed JSON payload to your end
 | `deploy_ended` | A deployment reaches `completed`, `failed`, or `cancelled` |
 | `app_unhealthy` | An application fails a liveness, readiness, or startup check |
 | `app_crash_loop` | An application is restarting repeatedly and not recovering |
-| `app_stopped` | The platform stopped an application after repeated crashes |
+| `app_stopped` | The platform stopped an application, or one of its workers, after repeated crashes |
 | `app_state_changed` | Somebody started, stopped, or restarted an application |
 | `app_blocked` | An application was blocked for a security issue |
 | `scaling_limit_reached` | An application could not scale to the replicas it asked for |
@@ -78,6 +78,8 @@ There is no separate build event — on Miget the build and the deployment are o
 ```
 
 `message` carries why a deployment failed, in the platform's own wording rather than the raw cluster error where one is recognised. It is `null` on a deployment that did not fail.
+
+**`app_stopped` for a worker** carries `data.process`, the worker's name; the application's web keeps running, and the next deploy starts the worker again. **`app_unhealthy` and `app_crash_loop` for a worker** carry `data.process` too, and no `data.probe_path`: the probes configured on the application are the web's.
 
 **App lifecycle events name the resource.** `app_state_changed`, `app_unhealthy`, `app_crash_loop`, `app_stopped`, `app_blocked` and `scaling_limit_reached` carry `data.resource_name` and `data.labels` — the resource the application runs on and the labels set on it, an empty array when it has none. `app_state_changed` also carries `data.state`, one of `started`, `stopped`, `failed` or `restart_scheduled`; `restart_scheduled` is sent when a restart is requested, and the `started` that follows once it is running is a second event. A free-plan application going to sleep, or waking on traffic, sends no `app_state_changed`.
 

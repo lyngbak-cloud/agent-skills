@@ -69,7 +69,7 @@ public address.
 - `DELETE /api/v1/vpcs/{uuid}/subnets/{subnet_uuid}` - Delete a subnet. **422** while a workload is still attached to it
 - `GET /api/v1/vpcs/{uuid}/attachments` - List attached workloads with the `fqdn` each answers to, and `static_ip`, `address_v4` and `address_v6` (the addresses are `null` unless `static_ip` is `true`)
 - `GET /api/v1/vpcs/{uuid}/attachments/{attachment_uuid}` - Get one attachment, with its `fqdn`, `subnet_uuid`, the workload it joined and its `static_ip` address fields. **404** when it is not in this VPC
-- `POST /api/v1/vpcs/{uuid}/attachments` - Attach a workload (`subnet_uuid`, `attachable_type` one of `App`/`Service`/`Addon`, `attachable_uuid`). **The workload restarts** — for an add-on that is a database restart. Optional `static_ip` (boolean, default `false`) gives an app a fixed address. **422** when the workload runs in a different region from the VPC
+- `POST /api/v1/vpcs/{uuid}/attachments` - Attach a workload (`subnet_uuid`, `attachable_type` one of `App`/`Service`/`Addon`, `attachable_uuid`). **The workload restarts** — for an add-on that is a database restart. Optional `static_ip` (boolean, default `false`) gives an app a fixed address. **422** for a workload on free compute (`size: "free"`): give it a paid size first. **422** when the workload runs in a different region from the VPC
 - `DELETE /api/v1/vpcs/{uuid}/attachments/{attachment_uuid}` - Detach. The workload restarts again
 
 The six single-item reads (subnet, attachment, peer route, VPN gateway, VPN device, site connection) need `network:view` and answer **404** for a uuid that does not exist, belongs to another VPC, or sits in a VPC of another workspace. Each returns the same object as its list endpoint.

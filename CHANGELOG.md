@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.1.0 — 2026-11-20
+
+Workloads can run without a resource on Usage Billing, billed by the second for what they reserve, and an enterprise contract places them in its workspace pool. The skill covers both placements, free compute, workers, cron minutes and the workspace limits an agent should read before it hits them.
+
+- **`billing: "pay_per_use"` runs an app, service, bucket or stack without a resource,** with a `region_code` and a `size` from `GET /api/v1/workspace/pay_per_use/sizes` in place of `ram_size` and `cpu_size`. The first one starts a $5 monthly minimum; a workspace with no subscription for it gets `422` with a `checkout_url` for a person to complete. The placement cannot be changed afterwards
+- **`billing: "workspace_pool"` places a workload in an enterprise contract's pool.** Nothing is billed by the hour; a pool without room for it answers `422` naming what ran out
+- **Free compute:** a personal workspace that pays for nothing can run apps at 0.1 CPU and 512 MiB sharing 750 running hours a month, sleeping after 15 minutes without traffic, plus one free PostgreSQL and one free Valkey, with `size: "free"`
+- **Usage Billing during a free trial is charged, and does not end the trial.** The trial covers the plan only; usage is charged to the card as it runs up, the first time at $5
+- **`GET /api/v1/workspace/usage`** reports the cycle's cost so far and a projection, and **`PUT /api/v1/workspace/spend_limit`** caps it: at the limit every workload on Usage Billing stops. **`PUT /api/v1/workspace/pay_per_use`** turns Usage Billing off
+- **`GET /api/v1/workspace/limits`** lists replicas per process, mounts per shared storage, databases and buckets per workspace, the charge threshold, cron minutes and the largest workload on Usage Billing, scaled by the workspace plan. Creating a database or bucket past its limit is refused with `422`. `POST /api/v1/workspace/limits/increase_requests` asks for more
+- **Workers:** the Procfile's other processes are listed under `workers` on an app, and **`PUT /api/v1/apps/{uuid}/workers/{name}`** scales one on its own. app.json's `formation` sets them again on the next deploy
+- **`within_resources: false` scales an app on a resource beyond its plan,** billing every replica past the first, and an app billed for its replicas can carry a monthly budget
+- **Cron jobs have sizes, a maximum run time and runs.** `GET .../cronjobs/sizes`, `size`, `max_run_seconds`, `overage`, `pause`, `resume` and `GET .../cronjobs/{id}/runs`. Every paid resource plan includes 1,000 cron minutes a cycle, read as `cron_minutes` on `GET /api/v1/resources/{uuid}`
+- **`GET /api/v1/issues`** says why an application, worker, database or cron job run stopped, and the record stays after it runs again
+- **MySQL and Valkey can be created as standalone services,** and a shared storage service is sized by `disk_size` alone
+- **Resource plans are named by their size code,** `hobby-1c-1g` to `pro-48c-96g`; the earlier `miget_hobby_*` and `miget_pro_*` codes are still accepted. A plan or component code ending in `_archived_<date>` was retired by a price change
+
 ## 1.0.9 — 2026-11-12
 
 A named compose volume mounted by more than one service becomes one shared storage, and the skill says what happens to it when its users change.
