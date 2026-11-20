@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.0 — 2026-11-20
+
+An app or a PostgreSQL database on Usage Billing can sleep when idle and stop paying for CPU and RAM until the next request or connection wakes it.
+
+- **`auto_sleep` on `PUT /api/v1/apps/{uuid}`** puts an app to sleep after 15 minutes without traffic, its workers included; the next request wakes it and is answered with `503` while it starts. Its volume is still billed. Requires `apps:operate`, and is refused with `422` on a resource, on free compute (which always sleeps) and, for `true`, on a private application
+- **`auto_sleep` on `PUT /api/v1/apps/{uuid}/addons/{id}`** decides whether a PostgreSQL database hibernates while its app sleeps: `true`, `false`, or `null` to follow the app. A database on an app sleeps only with its app. Responses carry `auto_sleep` and `sleeps_when_idle`
+- **`auto_sleep` on `PUT /api/v1/services/{id}`** hibernates a PostgreSQL service after 15 minutes with no client connected; the next connection wakes it. Requires `services:operate`
+- **`GET /api/v1/apps/{uuid}` and `GET /api/v1/services/{id}`** return `auto_sleep`, and an app with it reads `state: "sleeping"` while asleep
+
 ## 1.1.0 — 2026-11-20
 
 Workloads can run without a resource on Usage Billing, billed by the second for what they reserve, and an enterprise contract places them in its workspace pool. The skill covers both placements, free compute, workers, cron minutes and the workspace limits an agent should read before it hits them.
