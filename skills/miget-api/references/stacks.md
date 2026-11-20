@@ -52,7 +52,7 @@ A stack deploys a multi-service app from a `docker-compose.yml` in a Git reposit
 **Required fields:**
 - `repository_url` (string) - Git repository URL (GitHub or public HTTPS Git)
 - `branch` (string) - Git branch to deploy
-- `resource_id` (string) - UUID of the compute resource (Miget) to deploy onto
+- `resource_id` (string) - UUID of the compute resource (Miget) to deploy onto, **or** `billing: "pay_per_use"` with `region_code` (and optionally `tier`, `"hobby"` or `"pro"`) to deploy without a resource: every app and service of the stack then pays for what it reserves while it runs, each on its own (see `references/workspace.md`), **or** on an enterprise contract `billing: "workspace_pool"` with `region_code` to run them in the workspace pool, refused with `422` when the stack does not fit what is left of it
 - One of `project_id` (string, existing project UUID) **or** `new_project_name` (string, creates a new project)
 
 **Optional:**
@@ -81,7 +81,8 @@ source. A new required variable with no such rule is left unset; the redeploy do
 
 **Error responses to handle:**
 - `422 { "error": "Missing required environment variables: web.SECRET, ..." }` - a required var was neither supplied nor auto-populated; go back to step 2.
-- `422 { "error": "Not enough capacity on the resource: ..." }` - the manifest needs more RAM/disk than the resource has; pick a larger `resource_id`.
+- `422 { "error": "Not enough capacity on the resource: ..." }` - the manifest needs more RAM/disk than the resource has; pick a larger `resource_id`. On Usage Billing, each service is measured on its own instead, and the error names the one bigger than a workload on Usage Billing may be.
+- `422 { "error": "...", "checkout_url": "..." }` - Usage Billing on a workspace with no subscription for the monthly minimum; a person completes the checkout, then repeat the request.
 
 ---
 
@@ -163,6 +164,9 @@ services:
   web:                 # the public HTTP entry — must listen on port 5000 (Miget's only ingress port)
     x-miget:
       ram: "1024"      # memory: plain MB, or a unit like "1Gi"
+  api:
+    x-miget:
+      size: hobby-1c-2g  # a size code instead of cpu/ram; wins over both
   worker:
     x-miget:
       ram: "512"
@@ -186,6 +190,14 @@ volumes:
 
 Rules when generating it:
 - Give every service an `x-miget.ram` (plain MB or a unit like `1Gi`); add `cpu` (e.g. `500m`) when known.
+  Or name a size instead, `x-miget.size: <code>`, from `GET /api/v1/workspace/pay_per_use/sizes`
+  (`hobby-…` on shared CPU, `pro-…` on dedicated): it sets both and wins over them. A code of the
+  other CPU class than the stack's resource or Usage Billing tier is refused. On a named volume,
+  `x-miget.size` stays the disk size in MB.
+- On Usage Billing, prefer `x-miget.size`. A service that gives `cpu`/`ram` instead, managed
+  services included, runs and is billed at the smallest size of its tier that holds that RAM, then
+  that CPU (no `cpu` counts as half a core): `ram: "1500"` becomes `hobby-1c-2g`. When no size holds
+  a service, the stack is refused with a message naming it, followed by the tier's size codes.
 - Exactly one service is the public HTTP entry and must listen on **port 5000**; mark every other
   service `x-miget: { private: true }`.
 - For databases/caches, use `x-miget.managed: <postgres|valkey>` (with `storage`) so Miget runs them

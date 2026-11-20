@@ -51,7 +51,7 @@ For PostgreSQL databases, also ask about:
 
 **Services** are standalone managed services (databases, caches, storage) that can be shared across multiple apps.
 
-- Service types: `postgres`, `shared_storage`
+- Service types: `postgres`, `mysql`, `valkey`, `shared_storage`
 - Services can be mounted to apps as addons
 - Services have their own lifecycle independent of any app
 
@@ -60,13 +60,13 @@ For PostgreSQL databases, also ask about:
 ## App Addons
 
 - `GET /api/v1/apps/{uuid}/addons` - List app addons (includes `role` and `primary_addon_uuid` fields for PostgreSQL addons)
-- `POST /api/v1/apps/{uuid}/addons` - Create addon (PostgreSQL supports `creation_mode`: `fresh` or `external_replica`, and `instances` [1, 3, 5, 7] for HA clusters)
+- `POST /api/v1/apps/{uuid}/addons` - Create addon (PostgreSQL supports `creation_mode`: `fresh` or `external_replica`, and `instances` [1, 3, 5, 7] for HA clusters; a `storage` volume takes `disk_size` alone and refuses `size`, `cpu_size` and `ram_size` with `422`; a mount of a shared storage service, with `service_id`, refuses `disk_size` too)
 - `GET /api/v1/apps/{uuid}/addons/{id}` - Get addon details (includes `role`, `primary_addon_uuid`, and `replicas` for PostgreSQL primaries)
-- `PUT /api/v1/apps/{uuid}/addons/{id}` - Update addon (PostgreSQL supports `instances` [1, 3, 5, 7] for scaling cluster nodes, boolean `backup_enabled` and `public_access`, and a 6-field cron `scheduled_backup`)
+- `PUT /api/v1/apps/{uuid}/addons/{id}` - Update addon (PostgreSQL supports `instances` [1, 3, 5, 7] for scaling cluster nodes, boolean `backup_enabled` and `public_access`, and a 6-field cron `scheduled_backup`). Growing `ram_size` or `disk_size` past what the resource has left besides the addon — or, without a resource, past the largest workload of its CPU class — is refused with `422` (`Not enough RAM` / `Not enough disk space`); shrinking is never refused for room. `disk_size` only grows: a size below the add-on's current one is refused with `422` "Disk size cannot be decreased", and one under 100 MiB (0.098 GiB) with "Disk size must be greater than 0.1 GiB". A `storage` add-on changes only its `label` and `disk_size`: a volume has no CPU or RAM, so `size`, `cpu_size` and `ram_size` are refused with `422`. A `storage` add-on mounting a shared storage service changes only its `label`: `disk_size` is refused with `422` — resize the service instead
 - `DELETE /api/v1/apps/{uuid}/addons/{id}` - Delete addon (deleting a primary cascades to all its replicas; requires `apps:manage`)
 - `PATCH /api/v1/apps/{uuid}/addons/{id}/state` - Change addon state (process_start/process_stop/process_restart)
 - `POST /api/v1/apps/{uuid}/addons/{id}/rotate_password` - Rotate addon password (only for certain addon types - databases like PostgreSQL/MySQL, caches like Valkey)
-- `POST /api/v1/apps/{uuid}/addons/{id}/create_replica` - Create a read replica of a PostgreSQL addon (primary only, optional `cpu_size`/`ram_size` params, requires `apps:operate`)
+- `POST /api/v1/apps/{uuid}/addons/{id}/create_replica` - Create a read replica of a PostgreSQL addon (primary only, optional `cpu_size`/`ram_size` params — or `size` when it is on Usage Billing or in the workspace pool — requires `apps:operate`)
 - `POST /api/v1/apps/{uuid}/addons/{id}/promote_replica` - Promote a read replica to a standalone PostgreSQL instance (replica only, requires `apps:operate`)
 - `POST /api/v1/apps/{uuid}/addons/{id}/promote_external` - Promote an external replica to standalone instance or cluster by disconnecting from external source (preserves current mode, requires `apps:operate`)
 - `GET /api/v1/apps/{uuid}/addons/{id}/backups` - Get addon backups (PostgreSQL primary only, not available for replicas). Answers `503` when the backup state cannot be read from the cluster: retry later, it does not mean backups are disabled. `backup_enabled` is the configured setting and changes as soon as an update is accepted; `backup_active` is what the cluster runs right now and catches up asynchronously. After enabling backups, `backup_enabled: true` with `backup_active: false` means the change is still being applied, not that it was ignored — poll until `backup_active` matches. `backup_enabled` is always `false` on the free plan
@@ -76,15 +76,15 @@ For PostgreSQL databases, also ask about:
 ## Services
 
 - `GET /api/v1/services` - List all services (includes `role` and `primary_addon_uuid` fields for PostgreSQL services)
-- `POST /api/v1/services` - Create service (types: postgres, shared_storage. PostgreSQL supports `creation_mode`: `fresh` or `external_replica`, and `instances` [1, 3, 5, 7] for HA clusters)
+- `POST /api/v1/services` - Create service (types: postgres, mysql, valkey, shared_storage. PostgreSQL supports `creation_mode`: `fresh` or `external_replica`, and `instances` [1, 3, 5, 7] for HA clusters)
 - `GET /api/v1/services/{id}` - Get service details (includes `role`, `primary_addon_uuid`, and `replicas` for PostgreSQL primaries)
-- `PUT /api/v1/services/{id}` - Update service (PostgreSQL supports `instances` [1, 3, 5, 7] for scaling cluster nodes, boolean `backup_enabled` and `public_access`, and a 6-field cron `scheduled_backup`). `project_id` moves the service to another project (requires `services:manage`); a service that belongs to a stack moves with the stack instead
+- `PUT /api/v1/services/{id}` - Update service (PostgreSQL supports `instances` [1, 3, 5, 7] for scaling cluster nodes, boolean `backup_enabled`, and a 6-field cron `scheduled_backup`; PostgreSQL, MySQL and Valkey take boolean `public_access`). `project_id` moves the service to another project (requires `services:manage`); a service that belongs to a stack moves with the stack instead. Growing `ram_size` or `disk_size` past what its resource has left is refused with `422`, as for an addon. `disk_size` only grows: a size below the service's current one is refused with `422` "Disk size cannot be decreased", and one under 100 MiB (0.098 GiB) with "Disk size must be greater than 0.1 GiB". A `shared_storage` service changes only its `label` and `disk_size`: it has no CPU or RAM, so `size`, `cpu_size` and `ram_size` are refused with `422`
 - `DELETE /api/v1/services/{id}` - Delete service (deleting a primary cascades to all its replicas)
 - `PATCH /api/v1/services/{id}/state` - Change service state (process_start/process_stop/process_restart)
 - `POST /api/v1/services/{id}/rotate_password` - Rotate service password (databases and caches only, returns new password)
 - `POST /api/v1/services/{id}/mount_app` - Mount an application to a service (creates storage addon on app linked to this service)
 - `POST /api/v1/services/{id}/unmount_app` - Unmount an application from a service
-- `POST /api/v1/services/{id}/create_replica` - Create a read replica of a PostgreSQL service (primary only, optional `cpu_size`/`ram_size` params, requires `services:operate`)
+- `POST /api/v1/services/{id}/create_replica` - Create a read replica of a PostgreSQL service (primary only, optional `cpu_size`/`ram_size` params — or `size` when it is on Usage Billing or in the workspace pool — requires `services:operate`)
 - `POST /api/v1/services/{id}/promote_replica` - Promote a read replica to a standalone PostgreSQL instance (replica only, requires `services:operate`)
 - `POST /api/v1/services/{id}/promote_external` - Promote a service external replica to standalone instance or cluster by disconnecting from external source (preserves current mode, requires `services:operate`)
 - `GET /api/v1/services/{id}/backups` - Get service backups (PostgreSQL primary only, not available for replicas). Answers `503` when the backup state cannot be read from the cluster: retry later, it does not mean backups are disabled. `backup_enabled` is the configured setting and changes as soon as an update is accepted; `backup_active` is what the cluster runs right now and catches up asynchronously. After enabling backups, `backup_enabled: true` with `backup_active: false` means the change is still being applied, not that it was ignored — poll until `backup_active` matches. `backup_enabled` is always `false` on the free plan
@@ -103,7 +103,7 @@ The settings listed below come back on the read in the unit the create and updat
 - `settings` never contains `external_config` or `replication_config`.
 
 **Services** (`GET /api/v1/services/{id}`, and the responses of `POST /services`, `PUT /services/{id}`, `POST /services/{id}/create_replica`, `POST /services/{id}/mount_app` and `POST /services/{id}/unmount_app`). The list, `GET /api/v1/services`, returns none of the keys below:
-- `resource_id` is the UUID of the assigned resource, the value `POST /services` takes. `miget_id` carries the same UUID.
+- `resource_id` is the UUID of the assigned resource, the value `POST /services` takes, `null` unless `billing` is `"resource"`. `miget_id` carries the same UUID.
 - `ram_size` (**MiB**), `disk_size` (**GiB**) and `cpu_size` (cores) are read from the service's add-on quota and are `null` when the service has no add-on. `ram_size` and `disk_size` are rounded to 6 decimal places. On a free plan, creating a PostgreSQL service stores a `cpu_size` of `0.1` whatever was sent; `PUT` stores the value sent.
 - `public_access` is `null` for service types without the setting (`shared_storage`) or when the service has no add-on.
 - `instances` (1 for standalone, 3, 5 or 7 for an HA cluster) and `postgres_version` are PostgreSQL only and `null` for other types.
@@ -175,6 +175,8 @@ A `shared_storage` service returns `mount_point` and `mounts`, and `null` for `p
 
 ## Create App Addon (`POST /api/v1/apps/{uuid}/addons`)
 
+**A workspace holds a limited number of databases.** PostgreSQL, MySQL and Valkey add-ons and services, read replicas included, count against `databases_per_workspace` (20 on Personal, 40 on Team, 60 on Organization, 80 on Enterprise, unless Miget set another value); past it the request is refused with `422` naming the limit. Read `GET /api/v1/workspace/limits` before creating one.
+
 An addon is attached to a specific application and its lifecycle is managed alongside the app.
 
 **Common Parameters (for all addon types):**
@@ -187,6 +189,7 @@ An addon is attached to a specific application and its lifecycle is managed alon
     *   `ram_size` (float): RAM allocation in MiB (e.g., 64, 128, 256).
     *   `disk_size` (float): Disk storage in GiB (e.g., 1, 5, 10).
     *   `cpu_size` (float): CPU allocation in cores (e.g., 0.1, 0.25, 0.5). A ceiling, not a reservation — and ignored on dev plans, where it is pinned to `0.1`.
+    *   `size` (string): On an app on Usage Billing or in the workspace pool, a size code from `GET /api/v1/workspace/pay_per_use/sizes` instead of `ram_size` and `cpu_size`, which are refused with a `422` for its add-ons — on create and on `PUT /api/v1/apps/{uuid}/addons/{id}`. A `postgres`, `mysql` or `valkey` add-on that names none takes the smallest listed size with at least half a core.
 
 **Connection variables.** Creating a `postgres`, `mysql`, or `valkey` addon writes **two** variables to the app, both set to the same connection string: `<ADDON_NAME>_URL`, and a generic alias — `DATABASE_URL` for `postgres`/`mysql`, `REDIS_URL` for `valkey`. The alias is skipped when the app already has a variable of that name (case-insensitive), and an existing one is never overwritten. Verify with `GET /api/v1/apps/{uuid}/vars` after creating the addon.
 
@@ -212,7 +215,7 @@ A PostgreSQL database addon. Supports two creation modes: fresh database or exte
     *   `tls_crt` (string): TLS client certificate (required when `auth_type` is `'tls'`).
     *   `tls_key` (string): TLS client key (required when `auth_type` is `'tls'`).
     *   `s3_enabled` (boolean): `true` to enable optional S3 WAL archive fallback.
-    *   `s3_endpoint`, `s3_bucket`, `s3_path`, `s3_access_key`, `s3_secret_key` (strings): S3 configuration (required when `s3_enabled` is `true`).
+    *   `s3_endpoint`, `s3_bucket`, `s3_path`, `s3_access_key`, `s3_secret_key`, `s3_server_name` (strings): S3 configuration (required when `s3_enabled` is `true`); `s3_server_name` is the archive's server name in `barman-cloud-wal-archive`.
 
 **Example questions:**
 
@@ -257,6 +260,7 @@ A persistent storage volume addon.
     *   `service_id` (integer): To attach an existing shared storage service, provide its ID. When given, `mount_point` and `storage_access` are inherited from that service — omit them.
     *   `mount_point` (string, **required unless `service_id` is given**): The path inside the container where the volume should be mounted (e.g., `/data`).
     *   `storage_access` (string, **required unless `service_id` is given**): The access mode. Must be one of `RWO` (ReadWriteOnce) or `RWX` (ReadWriteMany).
+    *   `disk_size` (float): The size of the volume in GiB, `0.1` when not sent. Under 100 MiB (0.098 GiB), zero and negative sizes included, is refused with `422`. It can be grown later with `PUT /api/v1/apps/{uuid}/addons/{id}`, never shrunk. **Refused with `422` together with `service_id`**: a mount uses the shared storage's volume and has no size of its own.
     *   `sub_path` (string): Mount a subdirectory of the volume instead of its root, e.g. `media/uploads` — created automatically if missing. Each app mounting the same shared volume can use a different `sub_path`, which is how several apps share one volume without seeing each other's files. Relative path only — `.` and `..` segments and backslashes are refused — and **RWX only**; sending it with `RWO` is refused with a `422`. It is equally valid on a mount attached with `service_id`, which is always RWX. The value is stored in the addon's `settings` and returned there.
 
 **Example questions:**
@@ -268,19 +272,23 @@ A persistent storage volume addon.
 
 ## Create Service (`POST /api/v1/services`)
 
+**The database limit applies here too.** PostgreSQL, MySQL and Valkey add-ons and services, read replicas included, count against `databases_per_workspace` (20 on Personal, 40 on Team, 60 on Organization, 80 on Enterprise, unless Miget set another value); past it the request is refused with `422` naming the limit. Read `GET /api/v1/workspace/limits` before creating one.
+
 A service is a standalone resource (e.g., database, shared storage) that can be used by multiple applications.
 
 **Common Parameters (for all service types):**
 
 *   **Required:**
-    *   `service_type` (string): The type of service. Must be one of `postgres`, `shared_storage`.
+    *   `service_type` (string): The type of service. Must be one of `postgres`, `mysql`, `valkey`, `shared_storage`.
     *   `project_id` (string): The UUID of the project this service will belong to.
     *   `label` (string): A human-readable display name for the service.
 *   **Optional:**
-    *   `resource_id` (string): UUID of the compute resource to provision the service on. Optional at the API level, but a service needs a resource to run on — supply this (or the legacy alias `miget_id`, deprecated) in practice.
-    *   `ram_size` (float): RAM allocation in MiB.
+    *   `resource_id` (string): UUID of the compute resource to provision the service on (or the legacy alias `miget_id`, deprecated). One of `resource_id`, `miget_id` or `billing` is required.
+    *   `billing` (string): `"pay_per_use"` runs the service on Usage Billing: without a resource, paying for what it reserves while it runs (see `references/workspace.md`); `resource_id` is then ignored. With it, `region_code` (defaults to a region the workspace already runs in, or to the first active region in a workspace with nothing placed yet), `size` (a size code from `GET /api/v1/workspace/pay_per_use/sizes`) and `tier` (`"hobby"` shared CPU or `"pro"` dedicated; implied by `size`; permanent; ignored for `shared_storage`, which uses no CPU). The first workload on Usage Billing in a region is refused with `422` "Usage Billing is still being set up in this region. Try again in a minute." while its space comes up — retry after a minute. A workspace with no subscription for the monthly minimum gets `422` with `errors` and a `checkout_url` to complete first. On an enterprise contract, `"workspace_pool"` runs the service in the workspace pool instead, with the same `region_code`, `size` and `tier`; its size counts against the contract's capacity, and one the pool cannot hold is refused with `422`. `"resource"` (the default) runs it on `resource_id`. The response carries `billing` (see `references/workspace.md`).
+    *   `ram_size` (float): RAM allocation in MiB. On a resource only.
     *   `disk_size` (float): Disk storage in GiB.
-    *   `cpu_size` (float): CPU allocation in cores.
+    *   `cpu_size` (float): CPU allocation in cores. On a resource only.
+    *   `size` (string): With `billing` `"pay_per_use"` or `"workspace_pool"`, a size code from `GET /api/v1/workspace/pay_per_use/sizes`, e.g. `hobby-1c-2g` — the CPU and RAM each database instance reserves. A PostgreSQL, MySQL or Valkey service that names none takes the smallest listed size with at least half a core. `cpu_size` and `ram_size` are refused with a `422` for such a service, here and on `PUT /api/v1/services/{id}`, which resizes it by `size`. `size: "free"` with `billing: "pay_per_use"` takes the account's free PostgreSQL or Valkey service where the sizes endpoint lists it for that `workload` (see "Free compute" in `references/workspace.md`); MySQL has no free size and is refused with `422`.
 
 ---
 
@@ -305,7 +313,7 @@ A standalone PostgreSQL database service. Supports two creation modes: fresh dat
     *   `tls_crt` (string): TLS client certificate (required when `auth_type` is `'tls'`).
     *   `tls_key` (string): TLS client key (required when `auth_type` is `'tls'`).
     *   `s3_enabled` (boolean): `true` to enable optional S3 WAL archive fallback.
-    *   `s3_endpoint`, `s3_bucket`, `s3_path`, `s3_access_key`, `s3_secret_key` (strings): S3 configuration (required when `s3_enabled` is `true`).
+    *   `s3_endpoint`, `s3_bucket`, `s3_path`, `s3_access_key`, `s3_secret_key`, `s3_server_name` (strings): S3 configuration (required when `s3_enabled` is `true`); `s3_server_name` is the archive's server name in `barman-cloud-wal-archive`.
 
 **Example questions:**
 
@@ -318,6 +326,38 @@ A standalone PostgreSQL database service. Supports two creation modes: fresh dat
 
 ---
 
+#### Service Type: `mysql`
+
+A standalone MySQL database service.
+
+*   **Type-specific Parameters:**
+    *   `mysql_version` (string, **required**): The major version of MySQL. Accepted values: `'8.2'`, `'8.0'`. Any other value is rejected with `400`.
+    *   `public_access` (boolean): Enable public internet access. `true`/`false`; `'1'`/`'0'` are also accepted. A public MySQL service is reached on a randomly assigned TCP port of the region's TCP endpoint, not on 3306: read the host and port from `connection_details.external.external_connection_url` in the response or `GET /api/v1/services/{id}`. It can be turned on or off later with `PUT /api/v1/services/{id}`, except on a resource on the free plan, where the port is left as it is.
+    *   `environment_variables` (boolean): If `true`, writes the connection variables to the **project** the service belongs to — `<SERVICE_NAME>_URL` and `DATABASE_URL` — so every app in that project inherits them. `DATABASE_URL` is skipped when the project already has a variable of that name.
+
+**Example questions:**
+
+> "What version of MySQL would you like? (8.2 or 8.0)"
+> "Should this database be publicly accessible? (yes/no)"
+
+---
+
+#### Service Type: `valkey`
+
+A standalone Valkey (Redis-compatible) cache service.
+
+*   **Type-specific Parameters:**
+    *   `valkey_version` (string, **required**): The version of Valkey. Accepted values: `'7'`, `'7.2'`. Any other value is rejected with `400`.
+    *   `public_access` (boolean): Enable public internet access. `true`/`false`; `'1'`/`'0'` are also accepted. A public Valkey service is reached on a randomly assigned TCP port of the region's TCP endpoint, not on 6379: read the host and port from `connection_details.external.external_connection_url` in the response or `GET /api/v1/services/{id}`. It can be turned on or off later with `PUT /api/v1/services/{id}`, except on a resource on the free plan, where the port is left as it is.
+    *   `environment_variables` (boolean): If `true`, writes the connection variables to the **project** the service belongs to — `<SERVICE_NAME>_URL` and `REDIS_URL` — so every app in that project inherits them. `REDIS_URL` is skipped when the project already has a variable of that name.
+
+**Example questions:**
+
+> "What version of Valkey would you like? (7 or 7.2)"
+> "Should this cache be publicly accessible? (yes/no)"
+
+---
+
 #### Service Type: `shared_storage`
 
 A standalone shared storage volume service.
@@ -325,6 +365,8 @@ A standalone shared storage volume service.
 *   **Type-specific Parameters:**
     *   `mount_point` (string, **required**): The default mount path (e.g., `/shared-data`). Apps attaching to this service inherit it.
     *   `storage_access` (string): Ignored — a shared storage service is always provisioned as `RWX`.
+    *   `disk_size` (float): The size of the volume in GiB, `0.1` when not sent. Under 100 MiB (0.098 GiB), zero and negative sizes included, is refused with `422`. It can be grown later with `PUT /api/v1/services/{id}`, never shrunk.
+    *   `size`, `cpu_size`, `ram_size`: Refused with `422` — a shared storage service has no CPU or RAM, so it is sized by `disk_size` alone.
 
 **Example questions:**
 
@@ -419,7 +461,8 @@ POST /api/v1/services/{service-id}/create_replica
 - Only PostgreSQL **standalone** primary addons/services can have replicas (cluster/HA databases do not support read replicas - HA clusters already provide redundancy)
 - Cannot create a replica of a replica
 - Replicas share credentials (database name, username, password) with their primary
-- Replicas use the same resource allocation (CPU, RAM, disk) as their primary
+- A replica runs where its primary runs and is billed the same way: on the primary's resource, or on Usage Billing or in the workspace pool as a workload of its own, at its own size (`size`, the primary's when omitted) with the primary's disk. There is no placement to choose
+- On Usage Billing, a replica may first need the $5 monthly minimum: the request is refused with `422 {"errors": "...", "checkout_url": "..."}` until a person completes that checkout. A database on free compute cannot have a replica (`422`): give it a paid size first
 - Replicas do **not** support backups, restore, or database reset - these operations are only available on the primary
 - Replicas do **not** have their own ports or environment variables
 - Public access setting is inherited from the primary and cannot be changed independently - if the primary has public access enabled, the replica's `connection_details.external` will include external connection URLs
@@ -446,13 +489,14 @@ on the response to the create call.
 - `id` (string, path) - Addon ID or UUID (must be a PostgreSQL primary addon)
 
 **Optional fields:**
-- `cpu_size` (float) - CPU allocation for the replica (defaults to primary's value)
-- `ram_size` (integer) - RAM allocation in megabytes (defaults to primary's value)
+- `cpu_size` (float) - CPU allocation for the replica (defaults to primary's value). On a resource only
+- `ram_size` (integer) - RAM allocation in megabytes (defaults to primary's value). On a resource only
+- `size` (string) - For a database on Usage Billing or in the workspace pool, a size code from `GET /api/v1/workspace/pay_per_use/sizes` (defaults to the primary's size); `cpu_size` and `ram_size` are refused there
 
 **Constraints:**
 - Addon must be PostgreSQL type
 - Addon must be a primary (not a replica itself)
-- Resource must have sufficient capacity for the replica
+- On a resource, it must have room for the replica; on Usage Billing or in the workspace pool, `size` must be one of the listed sizes
 - Requires `apps:operate` permission
 
 **Ask only what you cannot derive:**
@@ -495,13 +539,14 @@ on the response to the create call.
 - `id` (string, path) - Service ID (must be a PostgreSQL primary service)
 
 **Optional fields:**
-- `cpu_size` (float) - CPU allocation for the replica (defaults to primary's value)
-- `ram_size` (integer) - RAM allocation in megabytes (defaults to primary's value)
+- `cpu_size` (float) - CPU allocation for the replica (defaults to primary's value). On a resource only
+- `ram_size` (integer) - RAM allocation in megabytes (defaults to primary's value). On a resource only
+- `size` (string) - For a database on Usage Billing or in the workspace pool, a size code from `GET /api/v1/workspace/pay_per_use/sizes` (defaults to the primary's size); `cpu_size` and `ram_size` are refused there
 
 **Constraints:**
 - Service must be PostgreSQL type
 - Service must be a primary (not a replica itself)
-- Resource must have sufficient capacity for the replica
+- On a resource, it must have room for the replica; on Usage Billing or in the workspace pool, `size` must be one of the listed sizes
 - Requires `services:operate` permission
 
 **Ask only what you cannot derive:**
@@ -596,6 +641,13 @@ the same pair is refused with **422** rather than moving the mount, because
 `unmount_app` matches a single addon by service and could not tell two of them
 apart. To change where an application mounts a volume, unmount it and mount it
 again at the new path.
+
+**A mount costs nothing and has no size of its own.** The shared storage is billed
+once, by its `disk_size`, however many applications mount it. **One shared storage
+takes at most `mounts_per_volume` mounts** (5 on Personal, 10 on Team, 15 on Organization, 20 on Enterprise, unless Miget set another value); the next one — through `mount_app`, an add-on
+with `service_id`, or cloning an app that has one — is refused with **422**. Read
+`mounts_per_volume` from `GET /api/v1/workspace/limits` before mounting, and see
+"Limits" in `references/workspace.md` to ask for more.
 
 ## Unmount App from Service (`POST /api/v1/services/{id}/unmount_app`)
 
