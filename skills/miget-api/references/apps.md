@@ -58,7 +58,7 @@ An **Application** is a deployable service (web app, API, worker, etc.).
 ## Applications
 
 - `GET /api/v1/apps` - List all applications
-- `POST /api/v1/apps` - Create new application
+- `POST /api/v1/apps` - Create new application. Boolean `auto_sleep` (Usage Billing and the workspace pool only, requires `apps:operate`) creates it already set to sleep when idle; it is refused with `422` on a resource, on free compute and with `private_access`
 - `GET /api/v1/apps/{uuid}` - Get application details (returns the settings described above, see the example below; includes `deployment_method` and `deployment_config` with method-specific fields; for Kamal apps this includes `registry_password`, `registry_hostname`, `registry_username`, `registry_image`, and `ssh_keys`; also includes a nested `region` object with `id`, `name`, and `code`, plus a `private_access` boolean)
 - `PUT /api/v1/apps/{uuid}` - Update application. Boolean `auto_sleep` (Usage Billing and the workspace pool only, requires `apps:operate`) makes the app sleep when idle: after 15 minutes without traffic it scales to zero, its workers included, and the next request wakes it, answered with `503` while it starts. While it sleeps its CPU and RAM are not billed; its volume still is. Its PostgreSQL add-ons sleep with it unless set to keep running. `auto_sleep` is refused with `422` on a resource and on free compute, which always sleeps; `true` is refused on a private application (`private_access`), which has no public route to wake it. `GET` returns `auto_sleep` as whether the app sleeps when idle, `true` on free compute
 - `DELETE /api/v1/apps/{uuid}` - Delete application
