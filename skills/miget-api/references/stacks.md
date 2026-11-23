@@ -1,7 +1,7 @@
 # Stacks (Docker Compose)
 
 A stack deploys a multi-service application from one `docker-compose.yml` in a Git
-repository. Miget reads the compose file and provisions the underlying
+repository. Lyngbak reads the compose file and provisions the underlying
 applications and managed services for you.
 
 Read this the moment a repository turns out to have a compose file. Creating
@@ -14,15 +14,15 @@ will not be wired together.
 - [What a stack is](#stacks-docker-compose)
 - [Endpoints](#endpoints)
 - [Creating one](#create-stack-post-apiv1stacks)
-- [From the Miget catalogue](#11a-deploy-a-known-app-from-the-miget-catalogue-deployablesh)
+- [From the Lyngbak catalogue](#11a-deploy-a-known-app-from-the-miget-catalogue-deployablesh)
 - [From a plain compose file](#11b-repos-with-a-compose-file-but-no-composemigetyaml)
 
 ## Stacks (Docker Compose)
 
 A **Stack** deploys a multi-service application from a single `docker-compose.yml` in a Git repository.
 
-- A stack is pinned to a **Resource** (Miget) and belongs to a **Project**
-- Miget detects the compose services and provisions the underlying **apps** and **managed services** for you
+- A stack is pinned to a **Resource** and belongs to a **Project**
+- Lyngbak detects the compose services and provisions the underlying **apps** and **managed services** for you
 - The stack tracks a Git **branch**; each deploy re-reads the compose file and reconciles changes
 - Stack `state` and per-service status are computed from the underlying apps/services
 
@@ -52,7 +52,7 @@ A stack deploys a multi-service app from a `docker-compose.yml` in a Git reposit
 **Required fields:**
 - `repository_url` (string) - Git repository URL (GitHub or public HTTPS Git)
 - `branch` (string) - Git branch to deploy
-- `resource_id` (string) - UUID of the compute resource (Miget) to deploy onto, **or** `billing: "pay_per_use"` with `region_code` (and optionally `tier`, `"hobby"` or `"pro"`) to deploy without a resource: every app and service of the stack then pays for what it reserves while it runs, each on its own (see `references/workspace.md`), **or** on an enterprise contract `billing: "workspace_pool"` with `region_code` to run them in the workspace pool, refused with `422` when the stack does not fit what is left of it
+- `resource_id` (string) - UUID of the compute resource to deploy onto, **or** `billing: "pay_per_use"` with `region_code` (and optionally `tier`, `"hobby"` or `"pro"`) to deploy without a resource: every app and service of the stack then pays for what it reserves while it runs, each on its own (see `references/workspace.md`), **or** on an enterprise contract `billing: "workspace_pool"` with `region_code` to run them in the workspace pool, refused with `422` when the stack does not fit what is left of it
 - One of `project_id` (string, existing project UUID) **or** `new_project_name` (string, creates a new project)
 
 **Optional:**
@@ -116,9 +116,9 @@ POST /api/v1/stacks
 GET /api/v1/stacks/{stack-uuid}/deployments
 ```
 
-## 11a. Deploy a Known App from the Miget Catalogue (deployable.sh)
+## 11a. Deploy a Known App from the Lyngbak Catalogue (deployable.sh)
 
-Miget curates ready-to-run, platform-tuned Compose stacks — WordPress, Ghost, n8n, Kafka,
+Lyngbak curates ready-to-run, platform-tuned Compose stacks — WordPress, Ghost, n8n, Kafka,
 Supabase, Metabase, and many more — in the public **deployable.sh** catalogue (repo
 `deployable-sh/stacks`). Each stack directory ships a `compose.miget.yaml` carrying the
 platform overrides a raw compose file lacks (port 5000 ingress, `private: true` defaults,
@@ -126,7 +126,7 @@ RAM sizing, managed-service wiring), so these deploy correctly out of the box.
 
 **When the user asks to run a well-known self-hostable app (e.g. "deploy WordPress", "spin up
 Ghost"), prefer the catalogue over an arbitrary compose file found on the web** — a random
-`docker-compose.yml` from the internet almost never has Miget's overrides and will likely fail
+`docker-compose.yml` from the internet almost never has Lyngbak's overrides and will likely fail
 to deploy.
 
 1. **Find it in the catalogue.** Look the app up in `deployable-sh/stacks`: list the repo's
@@ -152,16 +152,16 @@ user for a repository (public Git or GitHub) instead.
 ## 11b. Repos with a compose file but no `compose.miget.yaml`
 
 When deploying a user's **own** repository whose base `docker-compose.yml` has no
-`compose.miget.yaml` beside it, the stack still deploys, but without Miget's per-service tuning —
+`compose.miget.yaml` beside it, the stack still deploys, but without Lyngbak's per-service tuning —
 services fall back to default sizing and exposure. **Offer to create a `compose.miget.yaml`
 overlay** (a sibling of the compose file) and, once the user confirms, generate it and add it to
-their repo. Miget merges it onto the base compose at detect/deploy time; it carries only
+their repo. Lyngbak merges it onto the base compose at detect/deploy time; it carries only
 `x-miget` overrides:
 
 ```yaml
-# compose.miget.yaml — Miget overlay, merged onto your docker-compose at deploy time
+# compose.miget.yaml — Lyngbak overlay, merged onto your docker-compose at deploy time
 services:
-  web:                 # the public HTTP entry — must listen on port 5000 (Miget's only ingress port)
+  web:                 # the public HTTP entry — must listen on port 5000 (Lyngbak's only ingress port)
     x-miget:
       ram: "1024"      # memory: plain MB, or a unit like "1Gi"
   api:
@@ -200,7 +200,7 @@ Rules when generating it:
   a service, the stack is refused with a message naming it, followed by the tier's size codes.
 - Exactly one service is the public HTTP entry and must listen on **port 5000**; mark every other
   service `x-miget: { private: true }`.
-- For databases/caches, use `x-miget.managed: <postgres|valkey>` (with `storage`) so Miget runs them
+- For databases/caches, use `x-miget.managed: <postgres|valkey>` (with `storage`) so Lyngbak runs them
   as managed add-ons and injects their connection variables — don't run them as raw containers.
 - Give every named volume an `x-miget: { size: "<MB or unit>", type: RWO }` (`RWX` only when the
   volume is shared across replicas).
@@ -227,6 +227,6 @@ Rules when generating it:
   differ per service out of the project, since an app variable with the same key wins.
 
 Re-run `POST /api/v1/stacks/analyze` after adding the file to confirm the detected services and
-sizing. Full field reference: the "Docker Compose Stacks" page in the Miget docs.
+sizing. Full field reference: the "Docker Compose Stacks" page in the Lyngbak docs.
 
 ---

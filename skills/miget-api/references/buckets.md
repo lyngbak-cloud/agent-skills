@@ -21,7 +21,7 @@ quoting a parser error rather than a field name.
 
 A **Bucket** is an S3-compatible object storage container.
 
-- Buckets are attached to a **Resource** (Miget) for quota management
+- Buckets are attached to a **Resource** for quota management
 - Buckets may belong to a **Project**, but the field is optional — a bucket with no project stays at workspace level. It is never inferred: omit `project_id` and the bucket is unassigned, even when the workspace has exactly one project. A bucket without a project satisfies no assignment, so it cannot be created on — or left sitting on — an assigned resource
 - Buckets can be **public** or **private** visibility
 - Buckets have **S3 credentials** (access key / secret key) returned in the `GET /api/v1/buckets/{uuid}` response - use these for direct S3 API access via any S3-compatible client
@@ -57,7 +57,7 @@ included, so `docs/report.pdf` goes in the path as `docs%2Freport.pdf`.
 
 ## Create Bucket (`POST /api/v1/buckets`)
 
-**A workspace holds a limited number of buckets:** `buckets_per_workspace` (50 on Personal, 100 on Team, 150 on Organization, 200 on Enterprise, unless Miget set another value); past it the request is refused with `422` naming the limit. Read `GET /api/v1/workspace/limits` before creating one.
+**A workspace holds a limited number of buckets:** `buckets_per_workspace` (50 on Personal, 100 on Team, 150 on Organization, 200 on Enterprise, unless Lyngbak set another value); past it the request is refused with `422` naming the limit. Read `GET /api/v1/workspace/limits` before creating one.
 
 **Required fields:**
 - `label` (string) - Human-readable display name for the bucket

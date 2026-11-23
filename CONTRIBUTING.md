@@ -1,6 +1,6 @@
-# Contributing to Miget Agent Skills
+# Contributing to Lyngbak Agent Skills
 
-We welcome contributions from the community! Whether it's a bug fix, a new skill, or an improvement to an existing one, your input helps make Miget better for everyone.
+We welcome contributions from the community! Whether it's a bug fix, a new skill, or an improvement to an existing one, your input helps make Lyngbak better for everyone.
 
 ## Getting Started
 
@@ -13,7 +13,7 @@ We welcome contributions from the community! Whether it's a bug fix, a new skill
 ```
 skills/
   miget-api/
-    SKILL.md        # Miget API skill definition
+    SKILL.md        # Lyngbak API skill definition
 ```
 
 Each skill lives in its own directory under `skills/` and contains a single `SKILL.md` file following the [Agent Skills Open Standard](https://agentskills.io/home).
@@ -39,7 +39,7 @@ The body should provide clear, structured instructions that an AI agent can foll
 
 ## Reporting Issues
 
-Found a bug or have a suggestion? [Open an issue](https://github.com/migetapp/agent-skills/issues) and include as much detail as possible:
+Found a bug or have a suggestion? [Open an issue](https://github.com/lyngbak-cloud/agent-skills/issues) and include as much detail as possible:
 
 - What you expected to happen
 - What actually happened

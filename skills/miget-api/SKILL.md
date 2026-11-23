@@ -1,18 +1,18 @@
 ---
 name: miget-api
-description: Deploy and manage apps, databases, buckets, private networks and services on Miget PaaS. Covers authentication, resource provisioning, deployments, add-ons, domains, environment variables, VPCs and VPN, and every API endpoint. Use this skill whenever the user mentions Miget, deploying an app to Miget, a miget/resource, or asks to ship, host, scale or debug an application on the Miget platform — including when they only describe the goal ("get this Rails app online", "give my database a private address") without naming Miget.
-version: 1.1.0
+description: Deploy and manage apps, databases, buckets, private networks and services on Lyngbak (formerly Miget), the agentic infrastructure cloud. Covers authentication, resource provisioning, deployments, add-ons, domains, environment variables, VPCs and VPN, and every API endpoint. Use this skill whenever the user mentions Lyngbak or Miget, deploying an app to Lyngbak, a miget/resource, or asks to ship, host, scale or debug an application on Lyngbak — including when they only describe the goal ("get this Rails app online", "give my database a private address") without naming Lyngbak.
+version: 1.3.0
 ---
 
-# Miget API - Guide for AI Agents
+# Lyngbak API - Guide for AI Agents
 
 ## Overview
 
-Miget is a Kubernetes-based Platform-as-a-Service (PaaS) similar to Heroku or Render. It allows developers to deploy and manage applications, databases, and services in the cloud with minimal infrastructure management.
+Lyngbak (formerly Miget) is the agentic infrastructure cloud, built on Kubernetes. Developers and their coding agents deploy and manage applications, databases, and services in the cloud with minimal infrastructure management, billed the way they run: a flat resource, Usage Billing by the second, or both.
 
-**Base URL:** `https://app.miget.com/api/v1`
+**Base URL:** `https://app.lyngbak.com/api/v1`
 
-**API Documentation:** `https://app.miget.com/api/v1/docs` (Swagger/OpenAPI)
+**API Documentation:** `https://app.lyngbak.com/api/v1/docs` (Swagger/OpenAPI)
 
 ---
 
@@ -26,24 +26,24 @@ These are the platform's fixed rules. Most failed first deployments trace back t
 | **No implicit release phase** | Nothing runs between the build finishing and the new replicas starting. Database migrations belong in `pre_deploy_command` (`public_git` and `github` only), or they run on every replica boot. |
 | **Extra ports are private, and TCP/UDP only** | Additional ports default to private — pass `public: true` at creation or `PATCH .../expose_publicly` afterwards. They carry TCP/UDP, not HTTP. Port management is unavailable on the free plan (403). |
 | **App-to-app traffic is off by default** | `allow_connections` is `false` until set on the **destination** app (`PUT /api/v1/apps/{uuid}/security`). Until then it is not reachable at its `internal_url` from other apps on the same resource. |
-| **Runtime logs and metrics are not on the REST API** | The REST API serves build/deploy logs and cron run logs only. Application logs and metrics come from the Loki/Prometheus APIs at `metrics.miget.com`, using the *same* `miget_live_` token and an `X-Workspace-Id` header — there is no separate Grafana credential. |
+| **Runtime logs and metrics are not on the REST API** | The REST API serves build/deploy logs and cron run logs only. Application logs and metrics come from the Loki/Prometheus APIs at `metrics.lyngbak.com`, using the *same* `miget_live_` token and an `X-Workspace-Id` header — there is no separate Grafana credential. |
 | **A workload runs on a resource or on Usage Billing** | Every app, service, bucket and stack is created either on a resource (`resource_id`) or on Usage Billing, with `billing: "pay_per_use"` and a `region_code` (plus a `size` code from `GET /api/v1/workspace/pay_per_use/sizes`, e.g. `hobby-1c-2g`, where there is CPU — never `cpu_size`/`ram_size`, which are refused there). The choice is permanent. The first workload on Usage Billing starts a $5 monthly minimum unless the subscription already pays for something else, and a workspace without a subscription gets a `422` carrying a `checkout_url` a person has to complete before it can be created. Not offered on an enterprise contract. See `references/workspace.md`. |
 | **Basic Auth credentials are never returned** | The app response tells you whether Basic Auth is on, never what the credentials are. Do not try to read them back. |
 | **`quota` is in bytes** | `quota.ram_size` is bytes (`134217728` = 128 MiB), `quota.cpu_size` is a fractional core count. There are no top-level `ram_size`/`cpu_size` fields on the response. |
-| **CPU is never the capacity constraint** | Placement and capacity are checked against **RAM and disk only** — CPU is not a quota and is never the reason an app or addon on a resource cannot be created (a workload on Usage Billing takes a listed `size` instead of `cpu_size` and `ram_size`, see `references/workspace.md`). On dev plans (the free plan included) `cpu_size` is a *ceiling*, not a reservation: the **Miget Fair Scheduler** distributes the resource's CPU dynamically across every app and addon on it, so an idle process holds nothing back from a busy one. Guaranteed, dedicated CPU is a Pro-plan feature. Never tell a user that a database "will eat the CPU" of a small resource, and never refuse to co-locate an app and its database on that ground — decide on RAM. |
+| **CPU is never the capacity constraint** | Placement and capacity are checked against **RAM and disk only** — CPU is not a quota and is never the reason an app or addon on a resource cannot be created (a workload on Usage Billing takes a listed `size` instead of `cpu_size` and `ram_size`, see `references/workspace.md`). On dev plans (the free plan included) `cpu_size` is a *ceiling*, not a reservation: the **Fair Scheduler** distributes the resource's CPU dynamically across every app and addon on it, so an idle process holds nothing back from a busy one. Guaranteed, dedicated CPU is a Pro-plan feature. Never tell a user that a database "will eat the CPU" of a small resource, and never refuse to co-locate an app and its database on that ground — decide on RAM. |
 | **A database addon injects two variables, not one** | A `postgres` or `mysql` addon sets **both** `<ADDON_NAME>_URL` (e.g. `POSTGRES_YZQUW_URL`) and `DATABASE_URL` to the same connection string; `valkey` sets `<ADDON_NAME>_URL` and `REDIS_URL`. The generic alias is skipped only if the app already has a variable of that name, which is never overwritten. Read `GET /api/v1/apps/{uuid}/vars` instead of guessing, and do not add a duplicate `DATABASE_URL` "because the framework needs one". |
 | **`name` is server-assigned and always suffixed** | The server appends a random suffix to whatever `name` you send — `wall` comes back as `wall-pfhqv`, and a resource is `migetmxq`. Apps, addons, services, stacks and buckets all work this way. **Secret files go further** — you cannot send a name at all, only `filename` and `text`, and the whole name is generated server-side (`secret-file-gfeey`). **The suffixed `name` is the identifier everywhere**: public URLs, Git remote paths, connection variable keys. `service_name` (the unsuffixed form) appears in exactly one place, `internal_url`, and `label` is display text with no addressing role. Never reconstruct any of these from the name you sent, and never strip a suffix that looks like noise — read the field back and use it verbatim. |
 | **`state` mixes two vocabularies** | On apps, addons and services `state` reports the platform lifecycle while the object is provisioning and the raw **Kubernetes** status once it is up. There is no `active`, and a healthy database reports **`healthy`** (storage reports **`bound`**) — only an *app* reports `running`. Never poll for one hard-coded string; see "Reading `state`". |
 | **Addon vs standalone service** | An addon's lifecycle is tied to its app and is the right default — deleting the app deletes it. A standalone service outlives any single app. Note that explicit mounting works only for `shared_storage`; a shared database is shared by pointing several apps at its connection variables, not by mounting it. |
 | **Billing is not on the API — and deleting is not cancelling** | There is no endpoint that cancels a subscription, changes a plan's payment, suspends or deletes a workspace. Those are dashboard-only, on purpose. The trap is `DELETE /api/v1/resources/{uuid}`: it destroys the resource and everything on it, but the **subscription keeps charging** for the workspace plan and any other resource. Deleting things over the API never stops a bill. Send the user to the dashboard — see "Stopping the bill" in `references/workspace.md`. |
-| **Limits are readable before they refuse** | Replicas per process, mounts per shared storage, databases and buckets per workspace, the usage charge threshold and the largest single workload on Usage Billing are workspace limits: `GET /api/v1/workspace/limits` lists each with what is in use, so read it before scaling or mounting rather than learning a limit from a `422`. Raising one is a request Miget reviews by hand, not an instant change — see "Limits" in `references/workspace.md`. |
+| **Limits are readable before they refuse** | Replicas per process, mounts per shared storage, databases and buckets per workspace, the usage charge threshold and the largest single workload on Usage Billing are workspace limits: `GET /api/v1/workspace/limits` lists each with what is in use, so read it before scaling or mounting rather than learning a limit from a `422`. Raising one is a request Lyngbak reviews by hand, not an instant change — see "Limits" in `references/workspace.md`. |
 | **A compose file means a Stack** | A repository with `docker-compose.yml` is a Stack, not an App, and uses an entirely different set of endpoints. Do not try to force it into a single app. |
 
 ---
 
 ## How to Work
 
-Miget is meant to be driven, not to conduct an interview. Nearly everything needed to deploy a project is discoverable — from the repository in front of you and from the user's own account. Derive what you can, say what you inferred and from which file, and ask only about what is genuinely unknowable or irreversible.
+Lyngbak is meant to be driven, not to conduct an interview. Nearly everything needed to deploy a project is discoverable — from the repository in front of you and from the user's own account. Derive what you can, say what you inferred and from which file, and ask only about what is genuinely unknowable or irreversible.
 
 A deploy request always has the same shape:
 
@@ -81,7 +81,7 @@ Do these once, before your first API call.
    If it is set, use it for every API call by *referencing the variable*, never by substituting its value:
 
    ```bash
-   curl -H "Authorization: Bearer $MIGET_API_TOKEN" https://app.miget.com/api/v1/resources
+   curl -H "Authorization: Bearer $MIGET_API_TOKEN" https://app.lyngbak.com/api/v1/resources
    ```
 
    **Step 2: If no token is set, have the user install one.**
@@ -89,43 +89,43 @@ Do these once, before your first API call.
 
    - **"I have an API token"** - go straight to Step 3.
    - **"I have an account but no token"** - guide them to generate one:
-     1. Go to **https://app.miget.com/my_account#api_tokens**
+     1. Go to **https://app.lyngbak.com/my_account#api_tokens**
      2. Click **"Create new token"**
      3. Give it a name (e.g., `cli-agent`)
      4. Copy the token (it starts with `miget_live_`), then go to Step 3.
    - **"I don't have an account"** - direct them to sign up first:
-     1. Go to **https://app.miget.com/users/sign_up**
+     1. Go to **https://app.lyngbak.com/users/sign_up**
      2. Create an account and verify email
-     3. Once signed in, generate an API token at **https://app.miget.com/my_account#api_tokens**, then go to Step 3.
+     3. Once signed in, generate an API token at **https://app.lyngbak.com/my_account#api_tokens**, then go to Step 3.
 
    **Step 3: The user stores the token themselves.**
    Give them the snippet for their shell and ask them to run it in their own terminal. It prompts for the token without echoing it, appends it to their shell config, and exports it into the current session — so the value never passes through you.
 
    For **zsh** (default on macOS):
    ```zsh
-   read -rs "tok?Miget API token: " && printf 'export MIGET_API_TOKEN=%q\n' "$tok" >> ~/.zshrc && export MIGET_API_TOKEN="$tok" && unset tok
+   read -rs "tok?Lyngbak API token: " && printf 'export MIGET_API_TOKEN=%q\n' "$tok" >> ~/.zshrc && export MIGET_API_TOKEN="$tok" && unset tok
    ```
 
    For **bash**:
    ```bash
-   read -rsp 'Miget API token: ' tok && printf 'export MIGET_API_TOKEN=%q\n' "$tok" >> ~/.bashrc && export MIGET_API_TOKEN="$tok" && unset tok
+   read -rsp 'Lyngbak API token: ' tok && printf 'export MIGET_API_TOKEN=%q\n' "$tok" >> ~/.bashrc && export MIGET_API_TOKEN="$tok" && unset tok
    ```
 
    For **fish**:
    ```fish
-   read --silent --prompt-str='Miget API token: ' tok; and set -Ux MIGET_API_TOKEN $tok; and set -e tok
+   read --silent --prompt-str='Lyngbak API token: ' tok; and set -Ux MIGET_API_TOKEN $tok; and set -e tok
    ```
 
    Then ask them to restart the session (or tell you once the command has run) and repeat Step 1. Once stored, the token is detected automatically on every future session.
 
    **Step 4: Do not proceed without a token.** Attempting API calls without authentication wastes time and confuses the user with 401 errors.
 
-   If the user pastes a token into the conversation anyway, tell them it is now in the transcript, use it for this session if they want to continue, and recommend they rotate it at **https://app.miget.com/my_account#api_tokens** afterwards.
+   If the user pastes a token into the conversation anyway, tell them it is now in the transcript, use it for this session if they want to continue, and recommend they rotate it at **https://app.lyngbak.com/my_account#api_tokens** afterwards.
 
 **2. Confirm this skill is current.** This API changes often, and a stale copy will describe fields that no longer match it. Once per session, alongside finding the token, fetch the latest published release and read its `tag_name`:
 
    ```bash
-   curl -s https://api.github.com/repos/migetapp/agent-skills/releases/latest
+   curl -s https://api.github.com/repos/lyngbak-cloud/agent-skills/releases/latest
    ```
 
    Compare it with the `version` in this file's frontmatter. **Only if the published version is newer than yours**, tell the user once and walk them through the update. First refresh everything the CLI manages:
@@ -137,14 +137,14 @@ Do these once, before your first API call.
    Then **verify the copy your own agent reads**. A general update only refreshes agents the skill was installed for, so it can silently leave the current agent on an old version. Re-read the frontmatter `version` in this agent's own skill directory — for example `~/.claude/skills/miget-api/SKILL.md` (global) or `./.claude/skills/miget-api/SKILL.md` (project). If it still shows the old version, install it for this agent explicitly:
 
    ```bash
-   npx skills add migetapp/agent-skills -a claude-code
+   npx skills add lyngbak-cloud/agent-skills -a claude-code
    ```
 
    Use whichever agent you are in place of `claude-code` (`codex`, `cursor`, `gemini-cli`, …). Tell the user that the copy already loaded in the current session does not change — the new version takes effect in the next session.
 
    If the version matches, say nothing. Never let this check block or delay the user's actual request: if it fails for any reason (offline, rate-limited, unexpected response), skip it silently and carry on.
 
-**3. Know which workspace you are in.** Miget uses workspace-based multi-tenancy. Include the `X-Workspace-Id` header when the user works with multiple workspaces. If omitted, the API uses the user's default workspace.
+**3. Know which workspace you are in.** Lyngbak uses workspace-based multi-tenancy. Include the `X-Workspace-Id` header when the user works with multiple workspaces. If omitted, the API uses the user's default workspace.
 
 ### Reading the Project
 
@@ -172,7 +172,7 @@ Before asking anything, read the repository. Most of a deployment plan is alread
 
 **Handling `.env` files — read names, never expose values.**
 - Read `.env*` to learn which variables the app expects and to spot which look like secrets.
-- Send values to Miget with `PUT /api/v1/apps/{uuid}/vars`, one variable per request: it creates the key or overwrites it, so it is safe to repeat (or `app_vars_attributes` at creation). `POST` refuses a key the app already has with `422`.
+- Send values to Lyngbak with `PUT /api/v1/apps/{uuid}/vars`, one variable per request: it creates the key or overwrites it, so it is safe to repeat (or `app_vars_attributes` at creation). `POST` refuses a key the app already has with `422`.
 - **Never print a secret value** in chat, in a summary, in a log line, or in a commit. Refer to variables by name only.
 - Never commit a `.env` file, and never copy secrets into a compose file or a Dockerfile.
 - If a required variable has no value anywhere (a `.env.example` placeholder like `changeme` or an empty string), that is one of the few things genuinely worth asking about — or generate a strong random value when it is clearly an app-internal secret such as `SESSION_SECRET` or `JWT_SECRET`, and tell the user you did.
@@ -203,7 +203,7 @@ Treat these as starting points, not platform rules — raise them if the app is 
 
 | What you found | Use | Why |
 |---|---|---|
-| A GitHub remote, or the user names a GitHub repo | `github` | The only method with **auto-deploy on push** and **review apps** for pull requests. Needs a `credential_id` from `GET /api/v1/git_credentials`; if the workspace has none, having the user install the Miget GitHub App once is a smaller ask than a token they must re-issue whenever it is lost. |
+| A GitHub remote, or the user names a GitHub repo | `github` | The only method with **auto-deploy on push** and **review apps** for pull requests. Needs a `credential_id` from `GET /api/v1/git_credentials`; if the workspace has none, having the user install the Lyngbak GitHub App once is a smaller ask than a token they must re-issue whenever it is lost. |
 | A remote on another host, or a public repo with no GitHub App | `public_git` | Deploys straight from the URL, no credential exchange. Private repos take a `credential_id`. |
 | The image is already built and pushed to a registry | `container_registry` | There is nothing left to build. Paid resources only — on a free resource the request is rejected with `422`. Compose stacks are exempt: a bare `image:` service deploys this way on any plan. |
 | A Dockerfile the user builds and ships themselves | `kamal` or `container_registry` | Their pipeline already produces the artifact. `container_registry` is paid-resource only; `kamal` is not. |
@@ -223,7 +223,7 @@ Prefer an **addon** over a standalone service unless more than one app genuinely
 
 **The free plan needs a card on file.** Nothing is charged. A request for a free resource from an account with no saved card is rejected with `422` and a message saying so; a card that cannot be used for it is rejected the same way, pointing at support. Cards added through Apple Pay or Google Pay count. This applies to creating a resource and to moving an existing one down to the free plan. An account with a workspace suspended for abuse gets no free resource at all; it is rejected with `422` pointing at support — relay that, do not retry.
 
-**A new account gets 30 days free on Hobby 5 — and only there.** A new account gets a 30-day free trial when it buys plan `hobby-2c-4g` (formerly `miget_hobby_5`) **on its own, with no `components`**. The checkout link comes back as usual and charges nothing today; billing starts at the end of the trial at the plan's normal price, and cancelling before then costs nothing. Miget decides whether an account qualifies; one that does not gets an ordinary purchase at the plan's normal price. Any other plan is an ordinary purchase, cheaper ones included, and so is Hobby 5 with a paid component on the same request — there is no partial version of this.
+**A new account gets 30 days free on Hobby 5 — and only there.** A new account gets a 30-day free trial when it buys plan `hobby-2c-4g` (formerly `miget_hobby_5`) **on its own, with no `components`**. The checkout link comes back as usual and charges nothing today; billing starts at the end of the trial at the plan's normal price, and cancelling before then costs nothing. Lyngbak decides whether an account qualifies; one that does not gets an ordinary purchase at the plan's normal price. Any other plan is an ordinary purchase, cheaper ones included, and so is Hobby 5 with a paid component on the same request — there is no partial version of this.
 
 It needs **a saved payment card**, exactly like the free plan and with the same `422`: no card on file, or a card that cannot be used for the trial, and the request is rejected before any resource exists. Reading the plan the user asked for and quietly buying it without the trial would cost them money they did not expect, so relay the rejection and point at billing settings instead.
 
@@ -247,11 +247,11 @@ A free resource holding **no apps and no services** is deleted after 30 days of 
 
 Present exactly one of these before creating anything, then ask once.
 
-> **Deploying `acme-storefront` to Miget**
+> **Deploying `acme-storefront` to Lyngbak**
 >
 > | | | Why |
 > |---|---|---|
-> | Resource | new, `Miget Hobby Tier 1` (1 core, 1 GiB) in `eu-east-1` | no existing resource in this workspace; 1 GiB fits the app plus the database |
+> | Resource | new, `Lyngbak Hobby Tier 1` (1 core, 1 GiB) in `eu-east-1` | no existing resource in this workspace; 1 GiB fits the app plus the database |
 > | App | `acme-storefront`, builder `auto`, 512 MiB / 0.5 core | `package.json` → Next.js 15 |
 > | Deploy from | GitHub `acme/storefront`, branch `main` | current repo remote |
 > | Database | PostgreSQL addon | `drizzle.config.ts` → `dialect: "postgresql"` |
@@ -281,7 +281,7 @@ A correction using platform vocabulary shifts the register up for the rest of th
 
 The same moment, explanatory:
 
-> Your app needs somewhere to run, so I'll create a **resource** — a small slice of compute in Miget's `eu-east-1` region — and put the app on it. Drizzle is pointing at PostgreSQL, so I'll attach a **Postgres addon**: a managed database whose connection string lands in your app's environment automatically, and whose lifecycle follows the app. Your migrations will run once before each release rather than on every restart.
+> Your app needs somewhere to run, so I'll create a **resource** — a small slice of compute in Lyngbak's `eu-east-1` region — and put the app on it. Drizzle is pointing at PostgreSQL, so I'll attach a **Postgres addon**: a managed database whose connection string lands in your app's environment automatically, and whose lifecycle follows the app. Your migrations will run once before each release rather than on every restart.
 >
 > That comes to $5.00/month — the database runs inside the same resource, so it is not billed separately. Shall I go ahead?
 
@@ -356,12 +356,12 @@ Two more things worth knowing before you build a wait loop on this field:
 
 ## Authentication
 
-Miget API supports two authentication methods. **If you are an agent, use Method 1.** Method 2 requires the user's account password and is documented only for interactive clients.
+Lyngbak API supports two authentication methods. **If you are an agent, use Method 1.** Method 2 requires the user's account password and is documented only for interactive clients.
 
 ### Method 1: API Token (use this)
 
 1. **Generate API token** in the web UI:
-   - Go to `https://app.miget.com/my_account#api_tokens`
+   - Go to `https://app.lyngbak.com/my_account#api_tokens`
    - Create a new API token
    - Copy the token (starts with `miget_live_` prefix)
 
@@ -378,7 +378,7 @@ Miget API supports two authentication methods. **If you are an agent, use Method
 
    There are **two kinds**, and which one you hold changes what the API answers:
 
-   - A **user token** is created at `https://app.miget.com/my_account#api_tokens` and acts as its owner, carrying their role in whichever workspace the request targets.
+   - A **user token** is created at `https://app.lyngbak.com/my_account#api_tokens` and acts as its owner, carrying their role in whichever workspace the request targets.
    - A **workspace token** is created in workspace settings under Developers, and acts for that one workspace. It carries its own permission list and its own project list — neither the creator's role nor workspace ownership widens it. Three refusals follow from that, and none of them mean the token is broken: an `X-Workspace-Id` naming a different workspace answers **403**, `/api/v1/users/me` and everything under it answers **403**, and any workspace administration endpoint is simply not grantable to it. If you hit these, you are holding a workspace token and the request needs a different credential, not a retry.
 
 ### Method 2: Username/Password (JWT Tokens) — not for agents
@@ -431,7 +431,7 @@ one has a reference file with the endpoints, the required fields and the traps.
 
 - **Workspace** — the tenant everything belongs to and the thing that gets billed.
   Requests carry `X-Workspace-Id`, or fall back to the user's default. → `references/workspace.md`
-- **Resource (Miget)** — the compute a workload runs on. This is what costs money;
+- **Resource** — the compute a workload runs on. This is what costs money;
   applications and add-ons draw RAM, CPU and disk from its quota. → `references/workspace.md`
 - **Project** — a grouping inside a workspace, and the unit access can be
   restricted by. A project you cannot reach is invisible, not forbidden. → `references/workspace.md`
@@ -539,7 +539,7 @@ confirm once.
 
 1. **Use API Tokens for Automation**
    - API tokens are better for CI/CD and automation; they expire only if given an expiry date
-   - Generate a user token at `https://app.miget.com/my_account#api_tokens`, or a workspace token in workspace settings under Developers
+   - Generate a user token at `https://app.lyngbak.com/my_account#api_tokens`, or a workspace token in workspace settings under Developers
    - Read them from `MIGET_API_TOKEN` — never ask a user to paste a token or password into a conversation, and never write a token value into a command or config file on their behalf
 
 2. **Deployment Workflow**
@@ -552,7 +552,7 @@ confirm once.
    - Use project-level vars for shared configuration across apps
 
 4. **Deployment Methods**
-   - `git_push` - Push to Miget-hosted Git remote
+   - `git_push` - Push to Lyngbak-hosted Git remote
    - `github` - Best for GitHub repositories (supports auto-deploy on push)
    - `public_git` - For public Git repositories
    - `container_registry` - For pre-built container images from a registry (Docker Hub, GHCR, etc.). Not available on a free-plan resource
@@ -571,7 +571,7 @@ confirm once.
    - Only after ports look right, check deployment status, domains, and logs.
 
 7. **Observability — metrics, logs, dashboards**
-   - For resource usage, request rates, restarts, errors, or any runtime "what's happening" question, use the **Monitoring & Observability** section above (Grafana dashboards + Prometheus/Loki query APIs at `metrics.miget.com`) and https://docs.miget.com/monitoring/overview.
+   - For resource usage, request rates, restarts, errors, or any runtime "what's happening" question, use the **Monitoring & Observability** section above (Grafana dashboards + Prometheus/Loki query APIs at `metrics.lyngbak.com`) and https://docs.lyngbak.com/monitoring/overview.
    - The REST API only serves **build/deploy** logs (`GET /api/v1/apps/{uuid}/deployments/{id}/logs`, `/stream_logs`) and **cron run** logs (`GET /api/v1/apps/{uuid}/cronjobs/{id}/stream_logs`). App **runtime** logs and all metrics live in the monitoring APIs, not the REST API.
 
 8. **In-container HTTP tooling**
@@ -579,7 +579,7 @@ confirm once.
 
 ---
 
-**1. Use the OpenAPI spec as a fallback.** If you encounter an endpoint or parameter not covered in this guide, consult the OpenAPI spec at `https://app.miget.com/docs/openapi.json` for the exact schema. You don't need to load it proactively - this guide covers the common cases.
+**1. Use the OpenAPI spec as a fallback.** If you encounter an endpoint or parameter not covered in this guide, consult the OpenAPI spec at `https://app.lyngbak.com/docs/openapi.json` for the exact schema. You don't need to load it proactively - this guide covers the common cases.
 
 **2. Handle async operations.** Deployments and resource provisioning are asynchronous. Poll the relevant status endpoint to track progress rather than assuming immediate completion.
 
@@ -599,7 +599,7 @@ confirm once.
 
 **5. Provide helpful follow-up.** After creating resources, confirm what was created, provide the UUID/ID, and suggest logical next steps.
 
-**6. Run database migrations in `pre_deploy_command`.** Miget has no implicit release phase. For `public_git` and `github` apps, set `deployment_config.pre_deploy_command` so migrations run once before the new release starts — putting them in the start command runs them on every replica boot. See "Build Settings for `public_git` and `github`".
+**6. Run database migrations in `pre_deploy_command`.** Lyngbak has no implicit release phase. For `public_git` and `github` apps, set `deployment_config.pre_deploy_command` so migrations run once before the new release starts — putting them in the start command runs them on every replica boot. See "Build Settings for `public_git` and `github`".
 
 **7. Never handle secrets in the clear.** Reference `$MIGET_API_TOKEN` instead of its value, and don't echo tokens into logs, error messages, commands, or anything shown to the user. The same applies to every other secret the platform hands you — Git tokens, registry credentials, addon connection strings and environment-variable values. If a response body contains one, summarise it rather than printing it.
 
@@ -607,8 +607,8 @@ confirm once.
 
 ## Additional Resources
 
-- **API Documentation:** `https://app.miget.com/api/v1/docs`
-- **OpenAPI Spec:** `https://app.miget.com/docs/openapi.json` (use as fallback when this guide doesn't cover a specific endpoint or parameter)
-- **Documentation:** `https://docs.miget.com`
+- **API Documentation:** `https://app.lyngbak.com/api/v1/docs`
+- **OpenAPI Spec:** `https://app.lyngbak.com/docs/openapi.json` (use as fallback when this guide doesn't cover a specific endpoint or parameter)
+- **Documentation:** `https://docs.lyngbak.com`
 - **Website:** `https://migetapp.com`
-- **Support:** `support@miget.com` or `https://migetapp.com/join-discord`
+- **Support:** `support@lyngbak.com` or `https://migetapp.com/join-discord`

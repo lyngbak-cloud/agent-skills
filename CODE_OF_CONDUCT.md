@@ -6,6 +6,6 @@ By participating in this project, you agree to abide by its terms. Please read t
 
 ## Reporting
 
-If you experience or witness unacceptable behavior, please report it by opening an issue or contacting us at support@miget.com.
+If you experience or witness unacceptable behavior, please report it by opening an issue or contacting us at support@lyngbak.com.
 
 All reports will be reviewed and handled with discretion and confidentiality.

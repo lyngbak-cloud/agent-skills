@@ -93,7 +93,7 @@ actually responds, before telling the user the site is live.
    the `archive` field. Max 1 GB.
 
 ```bash
-curl -X POST "https://miget.com/api/v1/static/{uuid}/deployments" \
+curl -X POST "https://lyngbak.com/api/v1/static/{uuid}/deployments" \
   -H "Authorization: Bearer $MIGET_API_TOKEN" \
   -F "archive=@site.zip"
 ```
@@ -105,7 +105,7 @@ from the archive are removed.
 
 1. `POST /api/v1/static` with `deployment_config: {"source_type": "sftp"}`.
 2. Wait until `deployment_config.bucket_name` is set.
-3. Make sure the user has an SSH key on their Miget account — the gateway authenticates
+3. Make sure the user has an SSH key on their Lyngbak account — the gateway authenticates
    with it, and there is no password. Check with `GET /api/v1/users/me/ssh_keys`. If the
    list is empty, read their public key (`~/.ssh/id_ed25519.pub`, or `ssh-keygen -t ed25519`
    if they have none) and add it with `POST /api/v1/users/me/ssh_keys`. Do not send a
