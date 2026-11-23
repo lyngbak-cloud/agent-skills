@@ -175,7 +175,7 @@ A `shared_storage` service returns `mount_point` and `mounts`, and `null` for `p
 
 ## Create App Addon (`POST /api/v1/apps/{uuid}/addons`)
 
-**A workspace holds a limited number of databases.** PostgreSQL, MySQL and Valkey add-ons and services, read replicas included, count against `databases_per_workspace` (20 on Personal, 40 on Team, 60 on Organization, 80 on Enterprise, unless Miget set another value); past it the request is refused with `422` naming the limit. Read `GET /api/v1/workspace/limits` before creating one.
+**A workspace holds a limited number of databases.** PostgreSQL, MySQL and Valkey add-ons and services, read replicas included, count against `databases_per_workspace` (20 on Personal, 40 on Team, 60 on Organization, 80 on Enterprise, unless Lyngbak set another value); past it the request is refused with `422` naming the limit. Read `GET /api/v1/workspace/limits` before creating one.
 
 An addon is attached to a specific application and its lifecycle is managed alongside the app.
 
@@ -272,7 +272,7 @@ A persistent storage volume addon.
 
 ## Create Service (`POST /api/v1/services`)
 
-**The database limit applies here too.** PostgreSQL, MySQL and Valkey add-ons and services, read replicas included, count against `databases_per_workspace` (20 on Personal, 40 on Team, 60 on Organization, 80 on Enterprise, unless Miget set another value); past it the request is refused with `422` naming the limit. Read `GET /api/v1/workspace/limits` before creating one.
+**The database limit applies here too.** PostgreSQL, MySQL and Valkey add-ons and services, read replicas included, count against `databases_per_workspace` (20 on Personal, 40 on Team, 60 on Organization, 80 on Enterprise, unless Lyngbak set another value); past it the request is refused with `422` naming the limit. Read `GET /api/v1/workspace/limits` before creating one.
 
 A service is a standalone resource (e.g., database, shared storage) that can be used by multiple applications.
 
@@ -318,7 +318,7 @@ A standalone PostgreSQL database service. Supports two creation modes: fresh dat
 **Example questions:**
 
 > "Which project should this service belong to? (Please provide the Project UUID)"
-> "Which compute resource (Miget) should I provision this on? (Please provide the Miget UUID)"
+> "Which compute resource should I provision this on? (Please provide the resource UUID)"
 > "What version of PostgreSQL would you like? (18, 17, 16, 15, 14 or 13)"
 > "Should this database be publicly accessible? (yes/no)"
 > "Do you want a standalone instance or a High Availability ha_cluster? (standalone/cluster)"
@@ -371,7 +371,7 @@ A standalone shared storage volume service.
 **Example questions:**
 
 > "Which project should this service belong to? (Please provide the Project UUID)"
-> "Which compute resource (Miget) should I provision this on? (Please provide the Miget UUID)"
+> "Which compute resource should I provision this on? (Please provide the resource UUID)"
 > "What access mode do you need? `RWO` (for a single app) or `RWX` (for multiple apps)?"
 
 ---
@@ -644,7 +644,7 @@ again at the new path.
 
 **A mount costs nothing and has no size of its own.** The shared storage is billed
 once, by its `disk_size`, however many applications mount it. **One shared storage
-takes at most `mounts_per_volume` mounts** (5 on Personal, 10 on Team, 15 on Organization, 20 on Enterprise, unless Miget set another value); the next one — through `mount_app`, an add-on
+takes at most `mounts_per_volume` mounts** (5 on Personal, 10 on Team, 15 on Organization, 20 on Enterprise, unless Lyngbak set another value); the next one — through `mount_app`, an add-on
 with `service_id`, or cloning an app that has one — is refused with **422**. Read
 `mounts_per_volume` from `GET /api/v1/workspace/limits` before mounting, and see
 "Limits" in `references/workspace.md` to ask for more.

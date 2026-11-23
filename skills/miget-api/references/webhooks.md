@@ -1,6 +1,6 @@
 # Webhooks
 
-Workspace-level outbound webhooks. Miget POSTs a signed JSON payload to your
+Workspace-level outbound webhooks. Lyngbak POSTs a signed JSON payload to your
 endpoint when a subscribed event happens, so a consumer can react to deploys
 without polling.
 
@@ -11,7 +11,7 @@ preview environments are excluded unless asked for.
 
 ## Webhooks
 
-Workspace-level outbound webhooks. Miget POSTs a signed JSON payload to your endpoint when a subscribed event occurs, so you can react to deploys without polling `GET /api/v1/apps/{uuid}/deployments`. Requires `workspace:general` (admin only).
+Workspace-level outbound webhooks. Lyngbak POSTs a signed JSON payload to your endpoint when a subscribed event occurs, so you can react to deploys without polling `GET /api/v1/apps/{uuid}/deployments`. Requires `workspace:general` (admin only).
 
 - `GET /api/v1/webhooks` - List webhooks
 - `POST /api/v1/webhooks` - Create a webhook (**the only response containing `secret`**)
@@ -46,7 +46,7 @@ Workspace-level outbound webhooks. Miget POSTs a signed JSON payload to your end
 | `domain_verified` | Domain verification finished, whether it verified or failed |
 | `quota_alert` | Observability ingestion crossed a warning or critical threshold |
 
-There is no separate build event — on Miget the build and the deployment are one lifecycle, and `build_id` *is* the deployment UUID.
+There is no separate build event — on Lyngbak the build and the deployment are one lifecycle, and `build_id` *is* the deployment UUID.
 
 **Preview environments are separate apps.** A preview environment is created as its own application with its own UUID, so a webhook narrowed with `app_uuids` does not receive its events even when the parent application is listed. Set `include_review_apps: true` to have those events matched against the parent as well. A webhook covering every app in the workspace already receives them, which is worth knowing before opening a busy repository's pull requests.
 

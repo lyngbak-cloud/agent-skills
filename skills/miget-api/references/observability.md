@@ -6,9 +6,9 @@ ones you already know.
 
 Read this before telling a customer you cannot see why something is failing.
 
-Every app on Miget automatically gets metrics, logs, and pre-built Grafana dashboards — no setup. For **any** observability question (resource usage, request rates, restarts, errors, why a pod or cron run misbehaved), look here and in the Miget monitoring docs first: the REST API deliberately does **not** expose runtime metrics or app logs.
+Every app on Lyngbak automatically gets metrics, logs, and pre-built Grafana dashboards — no setup. For **any** observability question (resource usage, request rates, restarts, errors, why a pod or cron run misbehaved), look here and in the Lyngbak monitoring docs first: the REST API deliberately does **not** expose runtime metrics or app logs.
 
-**Docs:** https://docs.miget.com/monitoring/overview · `/metrics` · `/metrics-api` · `/logs`
+**Docs:** https://docs.lyngbak.com/monitoring/overview · `/metrics` · `/metrics-api` · `/logs`
 
 ## Why something stopped (`GET /api/v1/issues`)
 
@@ -28,7 +28,7 @@ Click **Monitoring** on an app's dashboard to open Grafana (automatic login — 
 
 ## Metrics API (Prometheus-compatible)
 
-Base URL `https://metrics.miget.com`. Auth: `Authorization: Bearer $MIGET_API_TOKEN` — the **same Miget API token** you already use for the REST API (see Authentication); there is no separate Grafana credential. Scope with the `X-Workspace-Id: <workspace-uuid>` header. Query language: **PromQL**. Subject to fair-use rate limits (`429` on throttle).
+Base URL `https://metrics.lyngbak.com`. Auth: `Authorization: Bearer $MIGET_API_TOKEN` — the **same Lyngbak API token** you already use for the REST API (see Authentication); there is no separate Grafana credential. Scope with the `X-Workspace-Id: <workspace-uuid>` header. Query language: **PromQL**. Subject to fair-use rate limits (`429` on throttle).
 
 - Instant query: `GET /prometheus/api/v1/query?query=<PromQL>[&time=<ts>]`
 - Range query: `GET /prometheus/api/v1/query_range?query=<PromQL>&start=<ts>&end=<ts>&step=<e.g. 60s>`
@@ -41,15 +41,15 @@ Metrics are prefixed `miget_` and carry common labels `namespace`, `app`, `addon
 - **Addon (PostgreSQL):** connections, database size, replication lag
 
 Example — last hour of CPU for an app:
-`GET https://metrics.miget.com/prometheus/api/v1/query_range?query=miget_instance_cpu_usage{app="my-app"}&start=<ts>&end=<ts>&step=60s`
+`GET https://metrics.lyngbak.com/prometheus/api/v1/query_range?query=miget_instance_cpu_usage{app="my-app"}&start=<ts>&end=<ts>&step=60s`
 
 ## Logs API (Loki-compatible)
 
 Same host and auth as the Metrics API. Query language: **LogQL**.
-- `GET https://metrics.miget.com/loki/api/v1/query_range?query={app="my-app"}&limit=100`
+- `GET https://metrics.lyngbak.com/loki/api/v1/query_range?query={app="my-app"}&limit=100`
 - Narrow to a specific cron run by pod: `{app="my-app", pod="<last_job_name>"}`.
 
-See https://docs.miget.com/monitoring/logs#logs-via-api.
+See https://docs.lyngbak.com/monitoring/logs#logs-via-api.
 
 ## Retention (by plan)
 

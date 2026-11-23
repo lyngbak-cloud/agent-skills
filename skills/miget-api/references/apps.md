@@ -26,9 +26,9 @@ or `422` and you will be guessing at which of a dozen fields it meant.
 
 An **Application** is a deployable service (web app, API, worker, etc.).
 
-- Apps are deployed to a **Resource** (Miget)
+- Apps are deployed to a **Resource**
 - Apps can have multiple **deployment methods**:
-  - `git_push` - Push to Miget-hosted Git remote
+  - `git_push` - Push to Lyngbak-hosted Git remote
   - `public_git` - Public Git repository
   - `github` - GitHub repository (via GitHub App)
   - `container_registry` - Pre-built container image from a registry (Docker Hub, GHCR, etc.). Not available on a free-plan resource
@@ -40,7 +40,7 @@ An **Application** is a deployable service (web app, API, worker, etc.).
 - Apps can have **workers**: the processes their Procfile runs besides the web (`sidekiq`, `clock`, a queue worker). `GET /apps` and `GET /apps/{uuid}` list them under `workers`, each with `name`, `state` (`running`, `stopped` at zero replicas, or `failed`), `replicas` and `quota` (the same shape and units as the app's). They come from the code: no endpoint adds, removes or resizes one, and `PUT /api/v1/apps/{uuid}/workers/{name}` scales one (see "Scale a Worker" below). app.json's `formation` sets a worker's replicas on every deploy (`quantity`), and its size when it names one (`size`): a size code as `GET /api/v1/workspace/pay_per_use/sizes` lists it (`hobby-1c-512m`), or a Heroku dyno size: `eco`, `basic`, `standard-1x` (and the older `free`, `hobby`, `1x`) run at `hobby-1c-512m`, `standard-2x` (`2x`) at `hobby-1c-1g`, `private-s`/`shield-s` at `pro-1c-2g`, `performance-m`/`private-m`/`shield-m`/`px` at `pro-2c-4g`, `*-l` at `pro-8c-16g`, `*-l-ram` at `pro-16c-32g`, `*-xl` at `pro-32c-64g`, and a Fir `dyno-Nc-Mgb` at the smallest Pro size with at least N CPU and M GB. A worker with no size runs at the app's size; one the app's tier has no match for (a Pro code, performance or private dyno on a Hobby app, a Hobby code or shared dyno on a Pro app, any `*-2xl`) runs at the app's size and at most one replica, and the deployment says so. The `web` entry's `size` sets the app's own size the same way (not on free compute), over what the panel or `PUT /api/v1/apps/{uuid}` set: app.json wins on every deploy. Every size is held to what the app may run (the room on its resource, or the largest Usage Billing size), and `quota` reports what the build actually started. On a resource, workers come after everything else: its `available_ram_size` leaves them out. On Usage Billing, a worker is billed like its app, at its own size, for the replicas it runs.
 - Apps can have **domains** (custom domains)
 - Apps can have **environment variables** (vars)
-- Apps can have **ports** (exposed ports). Port `5000` is fixed: HTTP traffic on the app's `*.migetapp.com` URL is always served from port `5000` — the app must listen on `5000`, and this port cannot be removed or changed. Additional TCP/UDP ports can be added for custom protocols; they are **private by default** and can be exposed publicly via the expose endpoint (see "Manage App Ports" below, and https://docs.miget.com/networking/ports for the full list of supported ports).
+- Apps can have **ports** (exposed ports). Port `5000` is fixed: HTTP traffic on the app's `*.migetapp.com` URL is always served from port `5000` — the app must listen on `5000`, and this port cannot be removed or changed. Additional TCP/UDP ports can be added for custom protocols; they are **private by default** and can be exposed publicly via the expose endpoint (see "Manage App Ports" below, and https://docs.lyngbak.com/networking/ports for the full list of supported ports).
 - Apps can be **public or private** (`private_access`): a private app has no public ingress and is reachable only inside the workspace network. Settable on create/update (default `false`); returned in the app response.
 - Apps have an **internal URL** for app-to-app and addon connections, returned as `internal_url` on the app response in the form `<service_name>.<resource-name>.<region-code>.migetapp.internal:5000`. Traffic from other apps requires `allow_connections: true` on the **destination** app (default `false`, set via `PUT /apps/{uuid}/security`); once enabled, other applications on the same resource (miget) can reach it at its `internal_url`.
 - Apps also have a **public URL**, returned as `public_url` on the app response in the form `https://<name>.<region-code>.migetapp.com`. The region comes from the compute resource the app runs on, or from `region_code` for an app on Usage Billing or in the workspace pool; every app has one. It is built from `name`, not `label` or `service_name` — and because the server appends a random suffix to `name` at creation, the only reliable way to learn an app's URL is to read `public_url` back from the response. An app with `private_access: true` has no public ingress, so its `public_url` will not answer. Custom domains are **not** included here; they are listed separately under `GET /apps/{uuid}/domains`, which returns `[]` for an app that only has its platform URL.
@@ -51,7 +51,7 @@ An **Application** is a deployable service (web app, API, worker, etc.).
 - `health_checks` returns every health check setting under the names `PUT /apps/{uuid}/health_checks` takes, so a client can send back what it read. A path or number that was never set is returned as `null` and a flag that was never set as `false`.
 - `scaling_profile` returns the settings under the names `PUT /apps/{uuid}/scaling_profile` takes (`replicas`, `auto_scaling_enabled`, `auto_min_replicas`, `auto_max_replicas`, `scaling_start_time`, `scaling_end_time`, `cpu_threshold`, `memory_threshold`). `scaling_start_time` and `scaling_end_time` are `HH:MM` strings, `null` when no scheduled window is set. An app with no scaling profile runs one instance: `replicas` is `1`, `auto_scaling_enabled` is `false` and the other keys are `null`.
 - `deployment_config.credential_id` (for `container_registry`, `github` and `public_git`) is the UUID of the stored credential, the value `PUT /apps/{uuid}/deployment` accepts, `null` when none is set. `container_registry` also returns `command` and `args`; `github` also returns `dockerfile_path` and `build_context`.
-- Every app automatically gets **monitoring** — Grafana dashboards, metrics, and logs, with Prometheus/Loki-compatible query APIs at `metrics.miget.com`. Runtime metrics and app logs are **not** on the REST API; see the Monitoring & Observability section.
+- Every app automatically gets **monitoring** — Grafana dashboards, metrics, and logs, with Prometheus/Loki-compatible query APIs at `metrics.lyngbak.com`. Runtime metrics and app logs are **not** on the REST API; see the Monitoring & Observability section.
 
 ## Endpoints
 
@@ -154,7 +154,7 @@ Variables are addressed by `key`. The `id` in the list response is not accepted 
 
 For config a container needs **on disk** rather than in the environment — `serviceAccount.json`, `.npmrc`, certificates, a `config.yaml`. Reach for these when the content is multi-line, is a file format, or is what a library expects at a path.
 
-**`text` is write-only.** You send it; no endpoint ever returns it. Contents are encrypted at rest, so plan for the fact that you cannot read a file back to diff it — keep the source of truth on your side. The **server assigns `name`** on creation (suffixed, like every other Miget name); that `name` is the identifier for the show, update and delete endpoints. Changes reach running containers on the **next deployment**, not immediately.
+**`text` is write-only.** You send it; no endpoint ever returns it. Contents are encrypted at rest, so plan for the fact that you cannot read a file back to diff it — keep the source of truth on your side. The **server assigns `name`** on creation (suffixed, like every other Lyngbak name); that `name` is the identifier for the show, update and delete endpoints. Changes reach running containers on the **next deployment**, not immediately.
 
 - `GET /api/v1/apps/{uuid}/secret_files` - List the app's own secret files (metadata only). Project-level files inherited by this app are **not** included; read those from the project endpoint
 - `POST /api/v1/apps/{uuid}/secret_files` - Create one (body: `filename`, `text`). `filename` is the in-container path and must be unique within the app; a duplicate is a **422**. Returns **201** with the assigned `name`
@@ -230,7 +230,7 @@ Workspace-level Git credentials (GitHub App installs / personal access tokens) u
 - `name` (string) - Service name seed (lowercase, alphanumeric with hyphens). **The server appends a random suffix**, so the app you get back is named `my-api-x7k2p`, not `my-api`. Never build a URL or a Git remote from the name you sent — read `name` and `public_url` back from the create response. The unsuffixed form is kept separately as `service_name`, and `internal_url` is the **only** place it is used; every other identifier — `public_url`, the `git_push` repository path, the addon's `<ADDON_NAME>_URL` key — is built from the suffixed `name`. Reaching for `service_name` anywhere else produces a path that does not resolve. The suffix costs 6 characters and is applied *before* the 40-character limit is checked, so keep what you send to 34 characters or fewer — otherwise you get "Name is too long (maximum is 40 characters)" for a name that looked well under it. **`service_name` gets no suffix, and it must be unique across the whole workspace** — two apps seeded `api` collide even on different resources and in different projects, and the second is refused with a 422 naming the codename as already taken. Disambiguate the seed (`shop-api`, `blog-api`) rather than relying on the suffix, which protects `name` but not `service_name`.
 - `label` (string) - Human-readable display name
 - `project_id` (string) - UUID of the project to create the application in (get from `GET /api/v1/projects`)
-- `resource_id` (string) - UUID of the compute resource (Miget) to assign (get from `GET /api/v1/resources`). The app's region is derived from this resource. **Not required when `billing` is `"pay_per_use"` or `"workspace_pool"`** — see "Usage Billing" below. Otherwise, leaving it out is refused with a `422`.
+- `resource_id` (string) - UUID of the compute resource to assign (get from `GET /api/v1/resources`). The app's region is derived from this resource. **Not required when `billing` is `"pay_per_use"` or `"workspace_pool"`** — see "Usage Billing" below. Otherwise, leaving it out is refused with a `422`.
 - `builder` (string) - Build strategy: `"auto"`, `"dockerfile"`, or `"custom"`. `"custom"` additionally requires `language` and `build_command` in `deployment_config` (see "Build Settings for `public_git` and `github`").
 
 **Optional but important:**
@@ -266,7 +266,7 @@ On an enterprise contract send `billing: "workspace_pool"` instead, with the sam
 
 Each `deployment_method` requires different fields in `deployment_config`:
 
-**`git_push`** - Deploy by pushing code to a Miget-hosted Git remote. No `deployment_config` fields are required at creation.
+**`git_push`** - Deploy by pushing code to a Lyngbak-hosted Git remote. No `deployment_config` fields are required at creation.
 
 ```json
 {
@@ -312,7 +312,7 @@ The response's `deployment_config` of a `git_push` app also carries `ssh_url` an
 
 **Option B — HTTPS with a Git token.** Git tokens are not on the API in any form — they cannot be listed, read, or created through it — so this route always ends in the dashboard. Use it only if SSH is unavailable (a network that blocks port 22, or a user who cannot add a key).
 
-1. Send the user to `https://app.miget.com/apps/{APP_UUID}/settings#git_tokens` to reveal or create a token.
+1. Send the user to `https://app.lyngbak.com/apps/{APP_UUID}/settings#git_tokens` to reveal or create a token.
    - Default token: the **username** is the resource (miget) name, the **password** is the token value.
    - Any token the user adds: the **username** is the token's name, the **password** is the token value.
    - A token is viewable exactly once. "Token already seen" means it is gone for good and they must create a new one — revoking the default token disables HTTPS deploys entirely.
@@ -373,7 +373,7 @@ Three failures come back from that reachability check, and they mean different t
 | `The repository host rate limit was exceeded. Please try again later.` | The Git host is throttling the platform — **the URL is fine** | Wait and retry; do not "correct" a URL that was already right |
 | `The branch '<name>' has no commits.` | The branch exists but is empty | Push a commit, or point `branch` at one that has history |
 
-**`github`** - Deploy from a GitHub repository using the Miget GitHub App integration.
+**`github`** - Deploy from a GitHub repository using the Lyngbak GitHub App integration.
 
 ```json
 {
@@ -425,7 +425,7 @@ The two Git-based methods share a set of build fields. They are also accepted on
 
 To clear a field, send it as an empty string (`"pre_deploy_command": ""`). Note that `repository_url` (for `public_git`) and `repository` + `credential_id` (for `github`) must be present on every request even when unchanged.
 
-**Running database migrations.** Miget has no implicit release phase — nothing runs between the build finishing and the new replicas starting. Put migrations in `pre_deploy_command` so they run **once** before the new release goes live, rather than in the start command where every replica would run them on boot. A Procfile `release` process, or app.json's `scripts.postdeploy` for the post-deploy step, wins over these fields, which apply only when the repository declares none:
+**Running database migrations.** Lyngbak has no implicit release phase — nothing runs between the build finishing and the new replicas starting. Put migrations in `pre_deploy_command` so they run **once** before the new release goes live, rather than in the start command where every replica would run them on boot. A Procfile `release` process, or app.json's `scripts.postdeploy` for the post-deploy step, wins over these fields, which apply only when the repository declares none:
 
 ```json
 {
@@ -510,7 +510,7 @@ Typical values: `npx drizzle-kit migrate` (Drizzle), `alembic upgrade head` (Ale
 | `parent_app_id` | string | Yes | - | UUID of the parent application to inherit image from |
 | `parent_image_auto_sync` | boolean | No | `false` | Automatically deploy when parent image updates |
 
-**`kamal`** - Deploy from the user's local machine using the Kamal CLI (`kamal deploy`). Miget provides SSH infrastructure and a container registry; the user runs Kamal locally.
+**`kamal`** - Deploy from the user's local machine using the Kamal CLI (`kamal deploy`). Lyngbak provides SSH infrastructure and a container registry; the user runs Kamal locally.
 
 ```json
 {
@@ -546,7 +546,7 @@ Required:
 5. Builder type (auto/dockerfile/custom)
 
 Optional but recommended:
-- Resource (which Miget resource should I assign?)
+- Resource (which Lyngbak resource should I assign?)
 - Deployment method (git_push/public_git/github/container_registry/parent_image/kamal). Note: the enum value is `container_registry` (not `docker_registry`).
 
 Please provide these details so I can create the application."
@@ -819,7 +819,7 @@ DELETE /api/v1/apps/{app-uuid}/ports/{port-id}
 - Requires `apps:operate` permission
 - Port management is not available on free plan resources
 - Ports can be exposed publicly or made private after creation using separate endpoints
-- Port `5000` is fixed for HTTP traffic on the app's `*.migetapp.com` URL — it is auto-created, cannot be removed or changed, and the app must listen on it. Use this endpoint to add extra TCP/UDP ports for custom protocols; they are **private by default** — use `expose_publicly` to make them reachable from outside the cluster. See https://docs.miget.com/networking/ports for the full list of supported ports.
+- Port `5000` is fixed for HTTP traffic on the app's `*.migetapp.com` URL — it is auto-created, cannot be removed or changed, and the app must listen on it. Use this endpoint to add extra TCP/UDP ports for custom protocols; they are **private by default** — use `expose_publicly` to make them reachable from outside the cluster. See https://docs.lyngbak.com/networking/ports for the full list of supported ports.
 - **Read the address back, do not construct it.** A public port answers with `public_endpoint` — `hostname:port`, the thing to hand the user or put in a connection string — plus `external_port` and the `endpoint_hostname` / `endpoint_ipv4_primary` / `endpoint_ipv6_primary` fields for the proxy it landed on. The external port is assigned from a pool, so it is never the internal one, and a private port returns `null` for all of them.
 
 **Ask only what you cannot derive:**
@@ -1077,8 +1077,8 @@ If you skip this decision, the user ends up with an app that cannot deploy.
 clone — you cannot discover them afterwards:
 
 ```bash
-curl -H "Authorization: Bearer $MIGET_API_TOKEN" https://app.miget.com/api/v1/apps/{source-uuid}/addons
-curl -H "Authorization: Bearer $MIGET_API_TOKEN" https://app.miget.com/api/v1/apps/{source-uuid}/cronjobs
+curl -H "Authorization: Bearer $MIGET_API_TOKEN" https://app.lyngbak.com/api/v1/apps/{source-uuid}/addons
+curl -H "Authorization: Bearer $MIGET_API_TOKEN" https://app.lyngbak.com/api/v1/apps/{source-uuid}/cronjobs
 ```
 
 `clone_data` on an add-on copies its **contents** — database rows, stored files. Without
@@ -1091,7 +1091,7 @@ app", and it is not reversible from here.
 - `label` (string) - Display name for the cloned application
 - `name` (string) - Unique service name for the cloned application (lowercase, alphanumeric with hyphens)
 - `project_id` (string) - UUID of the project the clone is created in
-- `resource_id` (string) - UUID of the compute resource (Miget) the clone runs on. **Not required when `billing` is `"pay_per_use"` or `"workspace_pool"`** — see below. Otherwise, leaving it out is refused with a `422`.
+- `resource_id` (string) - UUID of the compute resource the clone runs on. **Not required when `billing` is `"pay_per_use"` or `"workspace_pool"`** — see below. Otherwise, leaving it out is refused with a `422`.
 
 **Optional fields:**
 - `use_parent_image` (boolean, default: false) - Run the source app's image instead of building
@@ -1146,7 +1146,7 @@ The clone comes back in state `cloning` and is provisioned in the background. Po
 
 ## 10. Create and Deploy with Kamal
 
-Kamal is a deployment method where the user deploys from their local machine using `kamal deploy`. Unlike other methods, Miget does not build or deploy the app - it provides the infrastructure (SSH endpoint, container registry) and the user runs Kamal locally.
+Kamal is a deployment method where the user deploys from their local machine using `kamal deploy`. Unlike other methods, Lyngbak does not build or deploy the app - it provides the infrastructure (SSH endpoint, container registry) and the user runs Kamal locally.
 
 **Important constraints:**
 - Apps must be created with Kamal from the start - you cannot switch an existing app to Kamal

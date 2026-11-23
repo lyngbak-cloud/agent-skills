@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.0 — 2026-11-23
+
+Miget is now Lyngbak. The skill describes the platform under its new name and points at the new addresses; the API itself is unchanged.
+
+- **The API is at `https://app.lyngbak.com/api/v1`,** tokens are created at `app.lyngbak.com`, and the docs are at `docs.lyngbak.com`. Old `miget.com` addresses redirect
+- **The skill is installed from `lyngbak-cloud/agent-skills`** and checks for updates against that repository's releases. The skill id stays `miget-api`, and it still activates when the user says Miget
+- **Lyngbak is described as the agentic infrastructure cloud,** billed the way you run it: a flat resource, Usage Billing by the second, or both
+
 ## 1.1.0 — 2026-11-20
 
 Workloads can run without a resource on Usage Billing, billed by the second for what they reserve, and an enterprise contract places them in its workspace pool. The skill covers both placements, free compute, workers, cron minutes and the workspace limits an agent should read before it hits them.
