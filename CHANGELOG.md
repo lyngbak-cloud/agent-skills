@@ -5,6 +5,7 @@
 The webhook reference names what `scaling_limit_reached` carries for a worker a deploy could not start in full.
 
 - **`scaling_limit_reached` for a worker** carries `data.process`, `data.requested` and `data.allowed`: a deploy asked app.json for more replicas of that worker than its resource has room for, and started `allowed` of them, none when `0`. The application's web keeps running
+- **A free-plan app or PostgreSQL service sleeps after 15 minutes** without traffic or a connected client, not 30 as the skill said before
 
 ## 1.2.0 — 2026-11-20
 
